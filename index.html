@@ -1381,11 +1381,11 @@ async function descargarWord() {
     function portadaBloque(label, valor) {
       if (!valor) return '';
       return `<w:p>
-        <w:pPr><w:jc w:val="center"/><w:spacing w:line="280" w:lineRule="auto" w:before="60" w:after="0"/></w:pPr>
+        <w:pPr><w:jc w:val="center"/><w:spacing w:line="480" w:lineRule="auto" w:before="60" w:after="0"/></w:pPr>
         <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${szBody}"/><w:szCs w:val="${szBody}"/><w:b/></w:rPr>
           <w:t>${esc(label)}</w:t></w:r></w:p>
       <w:p>
-        <w:pPr><w:jc w:val="center"/><w:spacing w:line="280" w:lineRule="auto" w:before="0" w:after="80"/></w:pPr>
+        <w:pPr><w:jc w:val="center"/><w:spacing w:line="480" w:lineRule="auto" w:before="0" w:after="120"/></w:pPr>
         <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${szBody}"/><w:szCs w:val="${szBody}"/></w:rPr>
           <w:t>${esc(valor)}</w:t></w:r></w:p>`;
     }
@@ -1394,7 +1394,8 @@ async function descargarWord() {
       const jc  = opts.center ? 'center' : 'both';
       const sz  = opts.sz || szBody;
       const b   = opts.bold ? '<w:b/>' : '';
-      const spc = `<w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="120"/>`;
+      const lineVal = opts.line || 360;
+      const spc = `<w:spacing w:line="${lineVal}" w:lineRule="auto" w:before="0" w:after="120"/>`;
       return `<w:p>
         <w:pPr><w:jc w:val="${jc}"/>${spc}</w:pPr>
         <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>${b}</w:rPr>
@@ -1410,8 +1411,9 @@ async function descargarWord() {
           <w:t>${esc(texto)}</w:t></w:r></w:p>`;
     }
 
-    function emptyLine() {
-      return `<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="0"/></w:pPr></w:p>`;
+    function emptyLine(line) {
+      const l = line || 360;
+      return `<w:p><w:pPr><w:spacing w:line="${l}" w:lineRule="auto" w:before="0" w:after="0"/></w:pPr></w:p>`;
     }
 
     function pageBreak() {
@@ -1424,7 +1426,7 @@ async function descargarWord() {
     // ── PORTADA ──────────────────────────────────────────
     if (isUAPA) {
       // Logo UAPA centrado
-      bodyXml += emptyLine() + emptyLine();
+      bodyXml += emptyLine(480) + emptyLine(480);
       bodyXml += `<w:p>
         <w:pPr><w:jc w:val="center"/><w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="400"/></w:pPr>
         <w:r><w:rPr><w:noProof/></w:rPr>
@@ -1454,10 +1456,10 @@ async function descargarWord() {
             </wp:inline>
           </w:drawing>
         </w:r></w:p>`;
-      bodyXml += emptyLine();
+      bodyXml += emptyLine(480);
       // Tema del trabajo centrado en negrita
-      if (tema) bodyXml += paraBody(tema, { center: true, bold: true, sz: szTitle });
-      bodyXml += emptyLine();
+      if (tema) bodyXml += paraBody(tema, { center: true, bold: true, sz: szTitle, line: 480 });
+      bodyXml += emptyLine(480);
       bodyXml += portadaBloque('Estudiante:', nombre);
       bodyXml += portadaBloque('Matrícula:', matricula);
       bodyXml += portadaBloque('Carrera:', carrera);
@@ -1470,7 +1472,7 @@ async function descargarWord() {
       bodyXml += paraBody(universidad, { center: true, bold: true, sz: szTitle + 4 });
       bodyXml += emptyLine() + emptyLine();
       if (tema)        bodyXml += paraBody(tema, { center: true, bold: true, sz: szTitle });
-      bodyXml += emptyLine();
+      bodyXml += emptyLine(480);
       bodyXml += portadaBloque('Estudiante:', nombre);
       bodyXml += portadaBloque('Matrícula:', matricula);
       bodyXml += portadaBloque('Carrera:', carrera);
@@ -1487,8 +1489,8 @@ async function descargarWord() {
     // Conclusión    → salto ANTES y salto DESPUÉS
     // Bibliografía  → salto ANTES (termina el doc, no necesita salto después)
     // El Desarrollo ocupa el espacio entre Introducción y Conclusión
+    // Introducción NO necesita salto extra — ya viene el salto de portada antes
     const HOJA_PROPIA_ANTES = [
-      'introducción','introduccion',
       'conclusión','conclusion',
       'referencias','bibliografía','bibliografia',
       'referencias bibliográficas','referencias bibliograficas',
