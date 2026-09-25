@@ -603,12 +603,16 @@
               </div>
               <div class="row-2">
                 <div class="form-group" style="margin-bottom:0">
-                  <label class="form-label">Materia</label>
-                  <input class="form-input" type="text" id="materia" placeholder="Historia Universal">
+                  <label class="form-label">Materia / Asignatura</label>
+                  <input class="form-input" type="text" id="materia" placeholder="Administración de Empresas">
                 </div>
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">Tema del trabajo</label>
                   <input class="form-input" type="text" id="tema" placeholder="La Revolución Industrial">
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Nombre del Facilitador / Maestro</label>
+                  <input class="form-input" type="text" id="facilitador" placeholder="Prof. Juan Pérez">
                 </div>
               </div>
             </div>
@@ -1295,117 +1299,153 @@ async function descargarTrabajo() {
 async function descargarWord() {
   showToast('Preparando documento Word…', 'success');
   try {
-    // ── Configuración ─────────────────────────────────
-    const fuente    = document.getElementById('fuente').value || 'Arial';
-    const tamCuerpo = parseInt(document.getElementById('tamCuerpo').value || '12');
-    const tamTitulo = parseInt(document.getElementById('tamTitulo').value || '14');
-    const esNegrita = document.getElementById('negrita').value.includes('Sí');
-    const materia   = document.getElementById('materia').value || '';
-    const tema      = document.getElementById('tema').value || 'Trabajo Académico';
-    const fecha     = document.getElementById('fechaEntrega').value || new Date().toLocaleDateString('es-DO');
-    const nombre    = currentUser?.nombre      || '';
-    const matricula = currentUser?.matricula   || '';
-    const universidad = currentUser?.universidad || '';
-    const carrera   = currentUser?.carrera     || '';
+    const fuente      = document.getElementById('fuente').value || 'Arial';
+    const tamCuerpo   = parseInt(document.getElementById('tamCuerpo').value || '12');
+    const tamTitulo   = parseInt(document.getElementById('tamTitulo').value || '14');
+    const esNegrita   = document.getElementById('negrita').value.includes('Sí');
+    const materia     = document.getElementById('materia').value || '';
+    const tema        = document.getElementById('tema').value || 'Trabajo Académico';
+    const facilitador = document.getElementById('facilitador')?.value || '';
+    const fechaRaw    = document.getElementById('fechaEntrega').value || '';
+    const nombre      = currentUser?.nombre       || '';
+    const matricula   = currentUser?.matricula    || '';
+    const universidad = currentUser?.universidad  || '';
+    const carrera     = currentUser?.carrera      || '';
 
-    // ── Construir XML del documento Word (OOXML mínimo) ──
-    // Unidades: 1pt = 20 twips (para sz = half-points, multiplicar por 2)
+    // Formatear fecha en español
+    let fecha = fechaRaw;
+    if (fechaRaw) {
+      const d = new Date(fechaRaw + 'T00:00:00');
+      fecha = d.toLocaleDateString('es-DO', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
     const szBody  = tamCuerpo * 2;
     const szTitle = tamTitulo * 2;
     const bold    = esNegrita ? '<w:b/>' : '';
 
     function esc(s) {
       return String(s || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    // Párrafo helper: (texto, opciones)
-    function para(texto, opts = {}) {
-      const jc    = opts.center ? '<w:jc w:val="center"/>' : '<w:jc w:val="both"/>';
-      const bdPPr = opts.indent ? `<w:ind w:left="720" w:hanging="720"/>` : '';
-      const sz    = opts.sz || szBody;
-      const b     = (opts.bold || opts.heading) ? '<w:b/>' : '';
-      const spacing = '<w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="160"/>';
-      const numPr = opts.bullet ? '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>' : '';
+    // Párrafo centrado en negrita para portada
+    function portadaLinea(label, valor) {
+      if (!valor) return '';
       return `<w:p>
-        <w:pPr>${jc}${spacing}${bdPPr}${numPr}</w:pPr>
-        <w:r>
-          <w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>${b}</w:rPr>
-          <w:t xml:space="preserve">${esc(texto)}</w:t>
-        </w:r>
-      </w:p>`;
+        <w:pPr><w:jc w:val="center"/><w:spacing w:line="360" w:lineRule="auto" w:before="80" w:after="80"/></w:pPr>
+        <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${szBody}"/><w:szCs w:val="${szBody}"/><w:b/></w:rPr>
+          <w:t xml:space="preserve">${esc(label)}${esc(valor)}</w:t></w:r></w:p>`;
     }
 
-    function heading(texto, level) {
+    function paraBody(texto, opts = {}) {
+      const jc  = opts.center ? 'center' : 'both';
+      const sz  = opts.sz || szBody;
+      const b   = opts.bold ? '<w:b/>' : '';
+      const ind = opts.indent ? '<w:ind w:left="720" w:hanging="720"/>' : '';
+      // Espaciado compacto: before=0, after=120 (6pt), line=360 (1.5)
+      const spc = `<w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="120"/>`;
+      return `<w:p>
+        <w:pPr><w:jc w:val="${jc}"/>${spc}${ind}</w:pPr>
+        <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>${b}</w:rPr>
+          <w:t xml:space="preserve">${esc(texto)}</w:t></w:r></w:p>`;
+    }
+
+    function headingXml(texto, level) {
       const sz = level === 1 ? szTitle : szBody;
+      const b  = bold;
+      // before=160(8pt), after=80(4pt) — compacto, sin espacio exagerado
       return `<w:p>
-        <w:pPr>
-          <w:jc w:val="left"/>
-          <w:spacing w:line="360" w:lineRule="auto" w:before="240" w:after="120"/>
-        </w:pPr>
-        <w:r>
-          <w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>${bold}</w:rPr>
-          <w:t>${esc(texto)}</w:t>
-        </w:r>
-      </w:p>`;
+        <w:pPr><w:jc w:val="left"/><w:spacing w:line="360" w:lineRule="auto" w:before="160" w:after="80"/></w:pPr>
+        <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>${b}</w:rPr>
+          <w:t>${esc(texto)}</w:t></w:r></w:p>`;
     }
 
-    function emptyPara() { return para(''); }
+    function emptyLine() {
+      return `<w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="0"/></w:pPr></w:p>`;
+    }
 
-    // ── Portada ──────────────────────────────────────
-    const portadaLines = [
-      universidad, '', 'Presentación', '',
-      `Nombre: ${nombre}`,
-      `Matrícula: ${matricula}`,
-      `Asignatura: ${materia}`,
-      `Carrera: ${carrera}`,
-      `Tema: ${tema}`,
-      `Fecha: ${fecha}`,
-    ];
-    let bodyXml = portadaLines.map(l =>
-      para(l, { center: true, bold: true, sz: l === universidad ? szTitle : szBody })
-    ).join('\n');
+    // ── PORTADA estilo UAPA ───────────────────────────
+    // Detectar si es UAPA para usar su formato
+    const isUAPA = universidad.toUpperCase().includes('UAPA');
+    let bodyXml = '';
 
-    // Salto de página
+    // Espacio superior
+    bodyXml += emptyLine() + emptyLine() + emptyLine();
+
+    if (isUAPA) {
+      // Formato UAPA exacto
+      bodyXml += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="200"/></w:pPr>
+        <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${szTitle + 4}"/><w:szCs w:val="${szTitle + 4}"/><w:b/><w:color w:val="1A2D6B"/></w:rPr>
+          <w:t>Universidad Abierta Para Adultos</w:t></w:r></w:p>`;
+      bodyXml += `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="80"/></w:pPr>
+        <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${szTitle}"/><w:szCs w:val="${szTitle}"/><w:b/><w:color w:val="1A2D6B"/></w:rPr>
+          <w:t>(UAPA)</w:t></w:r></w:p>`;
+      bodyXml += emptyLine() + emptyLine();
+      bodyXml += portadaLinea('Estudiante: ', nombre);
+      bodyXml += portadaLinea('Matrícula: ', matricula);
+      bodyXml += portadaLinea('Carrera: ', carrera);
+      bodyXml += portadaLinea('Materia: ', materia);
+      if (facilitador) bodyXml += portadaLinea('Facilitador: ', facilitador);
+      bodyXml += portadaLinea('Fecha: ', fecha);
+    } else {
+      // Formato genérico otras universidades
+      bodyXml += paraBody(universidad, { center: true, bold: true, sz: szTitle + 4 });
+      bodyXml += emptyLine() + emptyLine();
+      if (nombre)      bodyXml += portadaLinea('Nombre: ', nombre);
+      if (matricula)   bodyXml += portadaLinea('Matrícula: ', matricula);
+      if (carrera)     bodyXml += portadaLinea('Carrera: ', carrera);
+      if (materia)     bodyXml += portadaLinea('Asignatura: ', materia);
+      if (facilitador) bodyXml += portadaLinea('Facilitador: ', facilitador);
+      if (fecha)       bodyXml += portadaLinea('Fecha: ', fecha);
+    }
+
+    // Salto de página tras portada
     bodyXml += `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
 
     // ── Parsear contenido generado ────────────────────
     const lines = generatedContent.split('\n');
     for (const line of lines) {
       const t = line.trim();
-      if (!t) { bodyXml += emptyPara(); continue; }
+      if (!t) continue; // saltar líneas vacías — el espaciado lo maneja CSS
       if (t.startsWith('[PORTADA]')) continue;
 
       const mTit = t.match(/^\[TITULO_SECCION:\s*(.+?)\]$/);
-      if (mTit) { bodyXml += heading(mTit[1], 1); continue; }
+      if (mTit) { bodyXml += headingXml(mTit[1], 1); continue; }
 
       const mSub = t.match(/^\[SUBTITULO:\s*(.+?)\]$/);
-      if (mSub) { bodyXml += heading(mSub[1], 2); continue; }
+      if (mSub) { bodyXml += headingXml(mSub[1], 2); continue; }
 
       if (t.startsWith('[PARRAFO]')) {
         const txt = t.replace('[PARRAFO]', '').trim();
-        if (txt) bodyXml += para(txt);
+        if (txt) bodyXml += paraBody(txt);
         continue;
       }
 
       if (t.startsWith('[REFERENCIA]')) {
         const ref = t.replace('[REFERENCIA]', '').trim();
-        bodyXml += para(ref, { indent: true });
+        if (ref) bodyXml += `<w:p>
+          <w:pPr><w:jc w:val="left"/><w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="120"/>
+            <w:ind w:left="720" w:hanging="720"/></w:pPr>
+          <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${szBody}"/><w:szCs w:val="${szBody}"/></w:rPr>
+            <w:t xml:space="preserve">${esc(ref)}</w:t></w:r></w:p>`;
         continue;
       }
 
       if (t.startsWith('- ') || t.startsWith('• ')) {
-        bodyXml += para(t.replace(/^[-•]\s+/, ''), { bullet: true });
+        const txt = t.replace(/^[-•]\s+/, '');
+        bodyXml += `<w:p>
+          <w:pPr><w:jc w:val="left"/><w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="80"/>
+            <w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>
+          <w:r><w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${szBody}"/><w:szCs w:val="${szBody}"/></w:rPr>
+            <w:t xml:space="preserve">${esc(txt)}</w:t></w:r></w:p>`;
         continue;
       }
 
-      if (!t.startsWith('[')) bodyXml += para(t);
+      if (!t.startsWith('[')) bodyXml += paraBody(t);
     }
 
-    // ── Ensamblar el .docx (OOXML mínimo) ────────────
+    // ── XML del documento ─────────────────────────────
     const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
@@ -1417,30 +1457,20 @@ async function descargarWord() {
   </w:body>
 </w:document>`;
 
-    const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-</Relationships>`;
-
     const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:docDefaults>
-    <w:rPrDefault><w:rPr>
-      <w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/>
-      <w:sz w:val="${szBody}"/><w:szCs w:val="${szBody}"/>
-      <w:lang w:val="es-DO"/>
-    </w:rPr></w:rPrDefault>
-  </w:docDefaults>
+  <w:docDefaults><w:rPrDefault><w:rPr>
+    <w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/>
+    <w:sz w:val="${szBody}"/><w:szCs w:val="${szBody}"/>
+    <w:lang w:val="es-DO"/>
+  </w:rPr></w:rPrDefault></w:docDefaults>
 </w:styles>`;
 
     const numXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:abstractNum w:abstractNumId="0">
-    <w:lvl w:ilvl="0">
-      <w:numFmt w:val="bullet"/>
-      <w:lvlText w:val="&#x2022;"/>
-      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
-    </w:lvl>
+    <w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/><w:lvlText w:val="&#x2022;"/>
+      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
   </w:abstractNum>
   <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
 </w:numbering>`;
@@ -1454,7 +1484,7 @@ async function descargarWord() {
   <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
 </Types>`;
 
-    const packageRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    const pkgRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
 </Relationships>`;
@@ -1465,18 +1495,18 @@ async function descargarWord() {
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
 </Relationships>`;
 
-    // ── Construir ZIP con JSZip inline (sin CDN) ─────
     const zip = await buildDocxZip({
       '[Content_Types].xml': contentTypes,
-      '_rels/.rels': packageRels,
+      '_rels/.rels': pkgRels,
       'word/document.xml': docXml,
       'word/styles.xml': stylesXml,
       'word/numbering.xml': numXml,
       'word/_rels/document.xml.rels': wordRels,
     });
 
-    const filename = `${(tema || 'trabajo').replace(/[^\w\s]/g, '').trim()}.docx`;
-    const url = URL.createObjectURL(new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+    const filename = `${(tema || 'trabajo').replace(/[^\w\sáéíóúÁÉÍÓÚñÑ]/g, '').trim()}.docx`;
+    const blob = new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click();
