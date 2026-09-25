@@ -3,10 +3,12 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
 const INDEX_FILE = process.env.INDEX_FILE || path.join(__dirname, 'index.html');
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'snow-academico';
 const MODEL = process.env.OPENROUTER_MODEL || 'google/gemma-4-31b-it:free';
 // OpenRouter tries these models in order when a provider is rate-limited or unavailable.
 const FALLBACK_MODELS = [
@@ -18,6 +20,7 @@ const UPSTREAM_TIMEOUT_MS = 180000;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 12;
 const requestCounts = new Map();
+let firebaseCertCache = { expiresAt: 0, certificates: {} };
 
 function isRateLimited(req) {
   const forwardedFor = req.headers['x-forwarded-for'];
@@ -40,6 +43,61 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.end(type.startsWith('application/json') ? JSON.stringify(body) : body);
 }
 
+function readJson(req, limit = 32 * 1024) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', chunk => {
+      raw += chunk;
+      if (Buffer.byteLength(raw, 'utf8') > limit) {
+        reject(Object.assign(new Error('Solicitud demasiado grande'), { status: 413 }));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      try { resolve(JSON.parse(raw || '{}')); }
+      catch { reject(Object.assign(new Error('JSON no válido'), { status: 400 })); }
+    });
+    req.on('error', reject);
+  });
+}
+
+async function getFirebaseCertificates() {
+  if (Date.now() < firebaseCertCache.expiresAt) return firebaseCertCache.certificates;
+  const response = await fetch('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com');
+  if (!response.ok) throw new Error(`Firebase certificate request failed: ${response.status}`);
+  const certificates = await response.json();
+  const cacheControl = response.headers.get('cache-control') || '';
+  const maxAge = Number(cacheControl.match(/max-age=(\d+)/)?.[1] || 300);
+  firebaseCertCache = { certificates, expiresAt: Date.now() + maxAge * 1000 };
+  return certificates;
+}
+
+async function getFirebaseUser(req) {
+  const authorization = String(req.headers.authorization || '');
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  const token = match[1];
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    if (header.alg !== 'RS256' || !header.kid || claims.aud !== FIREBASE_PROJECT_ID ||
+        claims.iss !== `https://securetoken.google.com/${FIREBASE_PROJECT_ID}` ||
+        typeof claims.sub !== 'string' || !claims.sub || claims.exp <= Math.floor(Date.now() / 1000) ||
+        claims.iat > Math.floor(Date.now() / 1000) + 60) return null;
+    const certificates = await getFirebaseCertificates();
+    const certificate = certificates[header.kid];
+    if (!certificate) return null;
+    const signedData = Buffer.from(`${parts[0]}.${parts[1]}`);
+    const signature = Buffer.from(parts[2], 'base64url');
+    if (!crypto.verify('RSA-SHA256', signedData, crypto.createPublicKey(certificate), signature)) return null;
+    return { uid: claims.sub, email: claims.email || '', emailVerified: claims.email_verified === true };
+  } catch (error) {
+    console.error('Firebase token verification error:', error.message);
+    return null;
+  }
+}
 const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     return send(res, 200, { ok: true }, 'application/json; charset=utf-8');
@@ -51,6 +109,9 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, { error: 'No se encontró index.html. Configure INDEX_FILE.' });
     }
   }
+  if (req.url.startsWith('/api/auth/')) {
+    return send(res, 404, { error: 'La autenticación ahora se gestiona con Firebase.' });
+  }
   if (req.method !== 'POST' || req.url !== '/api/generate') {
     return send(res, 404, { error: 'Ruta no encontrada' });
   }
@@ -60,6 +121,8 @@ const server = http.createServer(async (req, res) => {
   if (!process.env.OPENROUTER_API_KEY) {
     return send(res, 503, { error: 'Falta configurar OPENROUTER_API_KEY en el servidor.' });
   }
+  const firebaseUser = await getFirebaseUser(req);
+  if (!firebaseUser) return send(res, 401, { error: 'Inicia sesión para generar un trabajo.' });
 
   let upstreamTimeout;
   try {

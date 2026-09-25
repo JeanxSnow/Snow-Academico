@@ -13,3 +13,5 @@ services:
         value: google/gemma-4-31b-it:free
       - key: OPENROUTER_API_KEY
         sync: false
+      - key: FIREBASE_PROJECT_ID
+        value: snow-academico

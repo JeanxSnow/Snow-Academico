@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -457,7 +457,7 @@
   <div class="nav-logo">Snow <span>Académico</span></div>
   <div class="nav-right">
     <button class="theme-toggle" onclick="toggleTheme()" title="Cambiar tema" id="themeBtn">☀️</button>
-    <button class="btn btn-ghost" onclick="localStorage.removeItem('snow_sesion'); currentUser=null; showScreen('auth');" id="logoutBtn" style="display:none">Cerrar sesión</button>
+    <button class="btn btn-ghost" onclick="logoutUser()" id="logoutBtn" style="display:none">Cerrar sesión</button>
   </div>
 </nav>
 
@@ -512,7 +512,7 @@
         </div>
         <div class="form-group">
           <label class="form-label">Contraseña</label>
-          <input class="form-input" type="password" placeholder="Mínimo 8 caracteres" id="regPass">
+          <input class="form-input" type="password" placeholder="Mínimo 8 caracteres" id="regPass" autocomplete="new-password">
         </div>
         <div class="form-group">
           <label class="form-label">Universidad</label>
@@ -528,7 +528,7 @@
           <input class="form-input" type="text" placeholder="Administración de Empresas" id="regCarrera">
         </div>
         <button class="btn btn-gold" style="width:100%;justify-content:center;padding:12px" onclick="doRegister()">
-          Crear cuenta gratis — 1 mes de prueba
+          Crear cuenta
         </button>
         <p style="text-align:center;font-size:11px;color:var(--text2);margin-top:12px">
           Al registrarte aceptas los términos de uso
@@ -570,12 +570,15 @@
 
       <div class="sidebar-user">
         <div class="user-name" id="sidebarName">Usuario</div>
-        <div class="user-plan">✨ Prueba gratis — 28 días restantes</div>
+        <div class="user-plan">Cuenta personal</div>
       </div>
     </aside>
 
     <!-- MAIN -->
     <main class="main-content">
+      <div role="status" style="margin:0 0 18px;padding:12px 16px;border:1px solid #d7b94f;border-left:4px solid #d7b94f;border-radius:8px;background:rgba(215,185,79,.10);color:var(--text);font-size:13px;line-height:1.55">
+        <strong>Aviso:</strong> Snow Académico está en etapa de pruebas. Revisa, corrige y verifica el contenido y las fuentes de cada trabajo antes de enviarlo a tu docente o universidad. La herramienta puede cometer errores y no sustituye las instrucciones de tu asignatura.
+      </div>
 
       <!-- ── GENERADOR ── -->
       <div id="page-generator" class="page active">
@@ -957,6 +960,9 @@
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
+<script src="https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.19.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore-compat.js"></script>
 <script>
 // ── UAPA LOGO (embebido)
 
@@ -973,8 +979,8 @@ let generationInProgress = false;
 let generationPaused = false;
 let generationController = null;
 
-function historyStorageKey() {
-  const identity = (currentUser?.email || currentUser?.nombre || 'local').toLowerCase().trim();
+function historyStorageKey(identityValue = currentUser?.email || currentUser?.nombre || 'local') {
+  const identity = String(identityValue).toLowerCase().trim();
   return `snow_sugerencias_v1_${identity}`;
 }
 
@@ -990,6 +996,7 @@ function saveFieldHistory(field, value) {
   const values = Array.isArray(history[field]) ? history[field] : [];
   history[field] = [clean, ...values.filter(item => String(item).toLowerCase() !== clean.toLowerCase())].slice(0, 12);
   try { localStorage.setItem(historyStorageKey(), JSON.stringify(history)); } catch {}
+  if (currentUser?.uid) void userProfileRef().set({ suggestions: history, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(error => console.warn('No se pudieron sincronizar las sugerencias:', error));
   renderSuggestions(field, document.activeElement === document.getElementById(field));
 }
 
@@ -1014,6 +1021,7 @@ function renderSuggestions(field, open = false) {
       const latest = getFieldHistory();
       latest[field] = (Array.isArray(latest[field]) ? latest[field] : []).filter(item => String(item).toLowerCase() !== String(value).toLowerCase());
       try { localStorage.setItem(historyStorageKey(), JSON.stringify(latest)); } catch {}
+      if (currentUser?.uid) void userProfileRef().set({ suggestions: latest, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }).catch(error => console.warn('No se pudieron sincronizar las sugerencias:', error));
       renderSuggestions(field, true);
     });
     row.append(option, remove); list.appendChild(row);
@@ -1064,6 +1072,7 @@ function showPage(name) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   event?.target?.closest('.nav-item')?.classList.add('active');
+  if (name === 'historial') void cargarHistorialTrabajos();
 }
 
 // ── AUTH TABS ──────────────────────────────────────────
@@ -1075,58 +1084,133 @@ function switchTab(tab) {
   document.getElementById('tab-register').style.display = tab === 'register' ? 'block' : 'none';
 }
 
-// ── AUTH CON LOCALSTORAGE ────────────────────────────────
-function doLogin() {
-  const email = document.getElementById('loginEmail').value.trim();
-  const pass  = document.getElementById('loginPass').value.trim();
-  if (!email || !pass) { showToast('Completa correo y contraseña', 'error'); return; }
+// ── FIREBASE AUTH + PERFIL PERSISTENTE ──────────────────
+const firebaseConfig = {
+  apiKey: 'AIzaSyBuwpL7maZ7vp-1QGNtEwHv9ZzB5bO6qcY',
+  authDomain: 'snow-academico.firebaseapp.com',
+  projectId: 'snow-academico',
+  storageBucket: 'snow-academico.firebasestorage.app',
+  messagingSenderId: '35140805498',
+  appId: '1:35140805498:web:fba8abbac78dce0e1dacc3'
+};
+const firebaseApp = firebase.initializeApp(firebaseConfig);
+const firebaseAuth = firebaseApp.auth();
+const firebaseDb = firebaseApp.firestore();
+const firebaseReady = firebaseAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 
-  const usuarios = JSON.parse(localStorage.getItem('snow_usuarios') || '{}');
-  const user = usuarios[email.toLowerCase()];
-
-  if (!user) { showToast('Este correo no está registrado', 'error'); return; }
-  if (user.pass !== btoa(pass)) { showToast('Contraseña incorrecta', 'error'); return; }
-
-  currentUser = { ...user, email, isAdmin: email.includes('admin') };
-  localStorage.setItem('snow_sesion', JSON.stringify(currentUser));
-  enterApp();
+function userProfileRef(uid = firebaseAuth.currentUser?.uid) {
+  if (!uid) throw new Error('Inicia sesión para guardar tu perfil.');
+  return firebaseDb.collection('users').doc(uid);
 }
 
-function doRegister() {
-  const nombre    = document.getElementById('regName').value.trim();
-  const email     = document.getElementById('regEmail').value.trim();
-  const pass      = document.getElementById('regPass').value.trim();
+async function loadFirebaseProfile(authUser, initialProfile = {}) {
+  const ref = userProfileRef(authUser.uid);
+  const snapshot = await ref.get();
+  const saved = snapshot.exists ? snapshot.data() : {};
+  const user = {
+    uid: authUser.uid,
+    email: authUser.email || saved.email || '',
+    nombre: saved.nombre || initialProfile.nombre || authUser.displayName || '',
+    matricula: saved.matricula || initialProfile.matricula || '',
+    universidad: saved.universidad || initialProfile.universidad || '',
+    carrera: saved.carrera || initialProfile.carrera || '',
+    isAdmin: false
+  };
+  if (!snapshot.exists || Object.keys(initialProfile).length) {
+    await ref.set({ ...user, createdAt: saved.createdAt || firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  }
+  if (saved.suggestions && typeof saved.suggestions === 'object') {
+    try { localStorage.setItem(historyStorageKey(authUser.email || user.nombre), JSON.stringify(saved.suggestions)); } catch {}
+  }
+  return user;
+}
+
+function firebaseErrorMessage(error) {
+  const messages = {
+    'auth/email-already-in-use': 'Ese correo ya tiene una cuenta. Inicia sesión.',
+    'auth/invalid-email': 'Escribe un correo con formato válido.',
+    'auth/invalid-credential': 'Correo o contraseña incorrectos.',
+    'auth/user-not-found': 'No existe una cuenta con ese correo.',
+    'auth/wrong-password': 'Correo o contraseña incorrectos.',
+    'auth/weak-password': 'La contraseña debe tener al menos 8 caracteres.',
+    'auth/too-many-requests': 'Hubo muchos intentos. Espera un momento y vuelve a probar.',
+    'permission-denied': 'Firebase rechazó el guardado del perfil. Revisa las reglas de Firestore.'
+  };
+  return messages[error.code] || error.message || 'No se pudo completar la solicitud.';
+}
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPass').value;
+  if (!email || !password) { showToast('Completa correo y contraseña', 'error'); return; }
+  try {
+    await firebaseReady;
+    await firebaseAuth.signInWithEmailAndPassword(email, password);
+  } catch (error) { showToast(firebaseErrorMessage(error), 'error'); }
+}
+
+async function doRegister() {
+  const nombre = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const password = document.getElementById('regPass').value;
   const matricula = document.getElementById('regMatricula').value.trim();
   const universidad = document.getElementById('regUni').value;
-  const carrera   = document.getElementById('regCarrera').value.trim();
-
-  if (!nombre || !email || !pass) {
-    showToast('Nombre, correo y contraseña son obligatorios', 'error'); return;
-  }
-  if (pass.length < 6) {
-    showToast('La contraseña debe tener al menos 6 caracteres', 'error'); return;
-  }
-  if (!email.includes('@')) {
-    showToast('Correo no válido', 'error'); return;
-  }
-
-  const usuarios = JSON.parse(localStorage.getItem('snow_usuarios') || '{}');
-  const key = email.toLowerCase();
-  if (usuarios[key]) { showToast('Este correo ya está registrado. Inicia sesión.', 'error'); return; }
-
-  const nuevoUser = { nombre, pass: btoa(pass), matricula, universidad, carrera, isAdmin: false };
-  usuarios[key] = nuevoUser;
-  localStorage.setItem('snow_usuarios', JSON.stringify(usuarios));
-
-  currentUser = { ...nuevoUser, email, isAdmin: email.includes('admin') };
-  localStorage.setItem('snow_sesion', JSON.stringify(currentUser));
-  enterApp();
+  const carrera = document.getElementById('regCarrera').value.trim();
+  if (!nombre || !email || !password) { showToast('Nombre, correo y contraseña son obligatorios', 'error'); return; }
+  if (password.length < 8) { showToast('La contraseña debe tener al menos 8 caracteres', 'error'); return; }
+  try {
+    await firebaseReady;
+    const credential = await firebaseAuth.createUserWithEmailAndPassword(email, password);
+    currentUser = await loadFirebaseProfile(credential.user, { nombre, email, matricula, universidad, carrera });
+    enterApp();
+  } catch (error) { showToast(firebaseErrorMessage(error), 'error'); }
 }
 
+async function logoutUser() {
+  try { await firebaseAuth.signOut(); }
+  catch (error) { showToast(firebaseErrorMessage(error), 'error'); }
+}
+
+async function persistProfile() {
+  if (!currentUser || !firebaseAuth.currentUser) return;
+  try {
+    const profile = {
+      uid: firebaseAuth.currentUser.uid,
+      email: firebaseAuth.currentUser.email || currentUser.email || '',
+      nombre: currentUser.nombre || '',
+      matricula: currentUser.matricula || '',
+      universidad: currentUser.universidad || '',
+      carrera: currentUser.carrera || '',
+      isAdmin: false,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    await userProfileRef().set(profile, { merge: true });
+    currentUser = { ...currentUser, ...profile };
+  } catch (error) { showToast(firebaseErrorMessage(error), 'error'); }
+}
+
+firebaseReady.then(() => firebaseAuth.onAuthStateChanged(async authUser => {
+  if (!authUser) {
+    currentUser = null;
+    showScreen('auth');
+    return;
+  }
+  if (currentUser?.uid === authUser.uid) return;
+  try {
+    currentUser = await loadFirebaseProfile(authUser);
+    enterApp();
+  } catch (error) {
+    console.error('No se pudo cargar el perfil:', error);
+    showToast(firebaseErrorMessage(error), 'error');
+  }
+})).catch(error => {
+  console.error('Firebase no pudo inicializarse:', error);
+  showToast('No se pudo conectar con Firebase. Recarga la página e inténtalo de nuevo.', 'error');
+});
 function enterApp() {
   if (String(currentUser.universidad || '').trim().toUpperCase() === 'UFE') {
     currentUser.universidad = 'UFHEC';
-    localStorage.setItem('snow_sesion', JSON.stringify(currentUser));
+    void persistProfile();
   }
   document.getElementById('fechaEntrega').value = new Date().toISOString().split('T')[0];
   document.getElementById('sidebarName').textContent = currentUser.nombre;
@@ -1152,6 +1236,7 @@ function enterApp() {
   // currentUser.universidad puede venir de perfil o del selector al registrarse
   if (!currentUser.universidad && uniGen) {
     currentUser.universidad = uniGen.value;
+    void persistProfile();
   }
   if (currentUser.isAdmin) {
     document.getElementById('adminSection').style.display = 'block';
@@ -1165,23 +1250,12 @@ function actualizarUniversidadTrabajo() {
   if (!currentUser) return;
   const universidad = document.getElementById('uniGen')?.value || '';
   currentUser.universidad = universidad;
-  localStorage.setItem('snow_sesion', JSON.stringify(currentUser));
+  void persistProfile();
   const perfil = document.getElementById('perfUni');
   if (perfil) perfil.value = universidad;
   const resumen = document.getElementById('cfgUni');
   if (resumen) resumen.textContent = universidad || '—';
 }
-
-// Auto-login si hay sesión guardada
-(function autoLogin() {
-  try {
-    const sesion = localStorage.getItem('snow_sesion');
-    if (sesion) {
-      currentUser = JSON.parse(sesion);
-      enterApp();
-    }
-  } catch(e) { localStorage.removeItem('snow_sesion'); }
-})();
 
 // ── WORK TYPE ──────────────────────────────────────────
 function selectWorkType(el, tipo) {
@@ -1489,7 +1563,7 @@ async function generarTrabajo() {
   const universidad = document.getElementById('uniGen')?.value || currentUser?.universidad || '[Universidad]';
   if (currentUser && universidad !== currentUser.universidad) {
     currentUser.universidad = universidad;
-    localStorage.setItem('snow_sesion', JSON.stringify(currentUser));
+    void persistProfile();
     document.getElementById('cfgUni').textContent = universidad;
   }
   const carrera = currentUser?.carrera || '[Carrera]';
@@ -1557,9 +1631,11 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
   let advertenciaExtensionCorta = false;
   let palabrasGeneradas = 0;
   try {
+    if (!firebaseAuth.currentUser) throw new Error('Inicia sesión para generar un trabajo.');
+    const idToken = await firebaseAuth.currentUser.getIdToken();
     const res = await fetch('/api/generate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
       signal: generationController.signal,
       body: JSON.stringify({ prompt: promptMaestro, maxTokens: Math.min(16000, Math.max(4000, paginasObjetivo * 2400)), stream: true })
     });
@@ -1633,12 +1709,78 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
   document.getElementById('previewWrap').innerHTML = formatted;
   document.getElementById('previewWrap').classList.add('visible');
   document.getElementById('previewActions').classList.add('visible');
-  showToast(
-    advertenciaExtensionCorta
-      ? `Trabajo generado. Quedó más corto de lo aproximado (${palabrasGeneradas} palabras); revísalo antes de descargar.`
-      : 'Trabajo generado ✓ Revísalo antes de descargar',
-    advertenciaExtensionCorta ? 'info' : 'success'
-  );
+  let guardadoEnCuenta = true;
+  try { await guardarTrabajoEnFirestore(); }
+  catch (error) { guardadoEnCuenta = false; console.warn('No se pudo sincronizar el trabajo:', error); }
+  const mensajeGeneracion = advertenciaExtensionCorta
+    ? `Trabajo generado. Quedó más corto de lo aproximado (${palabrasGeneradas} palabras); revísalo antes de descargar.`
+    : 'Trabajo generado ✓ Revísalo antes de descargar';
+  showToast(guardadoEnCuenta ? mensajeGeneracion : `${mensajeGeneracion} No se guardó en tu cuenta; descárgalo para conservarlo.`, guardadoEnCuenta && !advertenciaExtensionCorta ? 'success' : 'info');
+}
+
+async function guardarTrabajoEnFirestore() {
+  if (!firebaseAuth.currentUser || !generatedContent.trim()) return;
+  if (generatedContent.length > 300000) throw new Error('El trabajo es demasiado extenso para guardarse de forma segura en Firestore.');
+  const ref = userProfileRef().collection('works').doc();
+  await ref.set({
+    title: document.getElementById('tema')?.value.trim() || 'Trabajo académico',
+    subject: document.getElementById('materia')?.value.trim() || '',
+    type: currentWorkType,
+    format: currentFormat,
+    content: generatedContent,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    createdAtClient: new Date().toISOString()
+  });
+}
+
+async function cargarHistorialTrabajos() {
+  const body = document.getElementById('historialBody');
+  if (!body) return;
+  if (!firebaseAuth.currentUser) {
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:40px">Inicia sesión para ver tus trabajos guardados</td></tr>';
+    return;
+  }
+  body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:40px">Cargando tus trabajos…</td></tr>';
+  try {
+    const snapshot = await userProfileRef().collection('works').orderBy('createdAt', 'desc').limit(50).get();
+    body.replaceChildren();
+    if (snapshot.empty) {
+      body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:40px">Aún no has generado ningún trabajo</td></tr>';
+      return;
+    }
+    snapshot.forEach(documentSnapshot => {
+      const work = documentSnapshot.data();
+      const row = document.createElement('tr');
+      const date = work.createdAt?.toDate?.() || (work.createdAtClient ? new Date(work.createdAtClient) : null);
+      for (const value of [work.title || 'Trabajo académico', work.type || '—', work.subject || '—', String(work.format || '—').toUpperCase(), date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString('es-DO') : '—']) {
+        const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell);
+      }
+      const actionCell = document.createElement('td');
+      const openButton = document.createElement('button');
+      openButton.type = 'button'; openButton.className = 'btn btn-ghost'; openButton.textContent = 'Abrir';
+      openButton.addEventListener('click', () => abrirTrabajoGuardado(documentSnapshot.id));
+      actionCell.appendChild(openButton); row.appendChild(actionCell); body.appendChild(row);
+    });
+  } catch (error) {
+    console.error('No se pudo cargar el historial:', error);
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:40px">No se pudo cargar el historial. Vuelve a intentarlo.</td></tr>';
+  }
+}
+
+async function abrirTrabajoGuardado(id) {
+  try {
+    const snapshot = await userProfileRef().collection('works').doc(id).get();
+    if (!snapshot.exists) throw new Error('Ese trabajo ya no está disponible.');
+    const work = snapshot.data();
+    generatedContent = String(work.content || '');
+    document.getElementById('tema').value = work.title || '';
+    document.getElementById('materia').value = work.subject || '';
+    currentWorkType = work.type || currentWorkType;
+    document.getElementById('previewWrap').innerHTML = formatearContenido(generatedContent);
+    document.getElementById('previewWrap').classList.add('visible');
+    document.getElementById('previewActions').classList.add('visible');
+    showPage('generator');
+  } catch (error) { showToast(firebaseErrorMessage(error), 'error'); }
 }
 
 // ── FORMATEAR CONTENIDO CON MARCADORES ───────────────────
@@ -1675,12 +1817,151 @@ function limpiarPreview() {
 async function descargarTrabajo() {
   if (!generatedContent) { showToast('Genera un trabajo primero', 'error'); return; }
 
-  if (currentFormat === 'word') {
-    await descargarWord();
-  } else {
-    showToast(`Formato ${currentFormat.toUpperCase()} próximamente — por ahora descarga en Word`, 'info');
-    await descargarWord();
+  if (currentFormat === 'word') return descargarWord();
+  if (currentFormat === 'pdf') return descargarPDF();
+  if (currentFormat === 'ppt') return descargarPowerPoint();
+  if (currentFormat === 'excel') return descargarExcel();
+  showToast('Selecciona un formato de descarga válido.', 'error');
+}
+
+function nombreArchivoTrabajo(extension) {
+  const tema = document.getElementById('tema')?.value || 'trabajo-academico';
+  const safe = tema.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  return `${safe || 'trabajo-academico'}.${extension}`;
+}
+
+function descargarBlob(blob, extension) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombreArchivoTrabajo(extension);
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+}
+
+function textoExportable() {
+  return String(generatedContent || '')
+    .replace(/\[PORTADA\]/g, '')
+    .replace(/\[TITULO_SECCION:\s*([^\]]+)\]/g, '\n\n$1\n')
+    .replace(/\[SUBTITULO:\s*([^\]]+)\]/g, '\n$1\n')
+    .replace(/\[(?:PARRAFO|LISTA|REFERENCIA)\]/g, '')
+    .replace(/\[\/LISTA\]/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function descargarPDF() {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) {
+    showToast('El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes y vuelve a pulsar PDF.', 'error');
+    return;
   }
+  const title = document.getElementById('tema')?.value || 'Trabajo académico';
+  const preview = document.getElementById('previewWrap');
+  const htmlContent = preview?.innerHTML || `<pre>${textoExportable().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${title.replace(/[<>]/g, '')}</title><style>
+    @page{size:letter;margin:2.54cm}body{font-family:Arial,sans-serif;font-size:12pt;line-height:1.5;color:#000;background:#fff;margin:0}
+    h1,h2,h3{color:#000!important;text-align:left;break-after:avoid}p{color:#000!important;text-align:justify;orphans:3;widows:3}
+    ul{color:#000!important}div{color:#000!important}img{max-width:100%;height:auto;object-fit:contain}
+  </style></head><body>${htmlContent}</body></html>`);
+  printWindow.document.close();
+  showToast('En el diálogo de impresión, elige «Guardar como PDF».', 'info');
+  setTimeout(() => { try { printWindow.focus(); printWindow.print(); } catch (error) { console.error(error); } }, 500);
+}
+
+function bloquesParaPresentacion() {
+  const groups = [];
+  let title = 'Desarrollo';
+  let paragraphs = [];
+  let inCover = false;
+  const flush = () => {
+    if (paragraphs.length) groups.push({ title, paragraphs });
+    paragraphs = [];
+  };
+  for (const raw of String(generatedContent || '').replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    if (/\[PORTADA\]/.test(line)) { inCover = true; continue; }
+    const heading = line.match(/^\[TITULO_SECCION:\s*([^\]]+)\]/);
+    if (heading) { inCover = false; flush(); title = heading[1].trim(); continue; }
+    if (inCover) continue;
+    const sub = line.match(/^\[SUBTITULO:\s*([^\]]+)\]/);
+    if (sub) { paragraphs.push(`${sub[1].trim()}:`); continue; }
+    const clean = line.replace(/^\[(?:PARRAFO|LISTA|REFERENCIA)\]\s*/, '').replace(/^\[\/LISTA\]\s*/, '').trim();
+    if (clean && !/^\[/.test(clean)) paragraphs.push(clean);
+  }
+  flush();
+  if (!groups.length) groups.push({ title: 'Desarrollo', paragraphs: [textoExportable()] });
+  return groups;
+}
+
+function dividirTexto(text, maxWords = 25) {
+  const words = String(text).split(/\s+/).filter(Boolean);
+  const chunks = [];
+  for (let i = 0; i < words.length; i += maxWords) chunks.push(words.slice(i, i + maxWords).join(' '));
+  return chunks;
+}
+
+async function descargarExcel() {
+  try {
+    const esc = value => String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+    const rows = [['Sección', 'Contenido'], ['Tema', document.getElementById('tema')?.value || 'Trabajo académico'], ['Estudiante', currentUser?.nombre || ''], ['Matrícula', currentUser?.matricula || ''], ['Universidad', document.getElementById('uniGen')?.value || currentUser?.universidad || ''], [], ['Sección', 'Texto']];
+    for (const group of bloquesParaPresentacion()) {
+      for (const paragraph of group.paragraphs) rows.push([group.title, paragraph]);
+    }
+    const col = n => String.fromCharCode(65 + n);
+    const sheetRows = rows.map((row, ri) => `<row r="${ri + 1}">${row.map((value, ci) => `<c r="${col(ci)}${ri + 1}" t="inlineStr"><is><t xml:space="preserve">${esc(value)}</t></is></c>`).join('')}</row>`).join('');
+    const files = {
+      '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+      '_rels/.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+      'xl/workbook.xml': '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Trabajo" sheetId="1" r:id="rId1"/></sheets></workbook>',
+      'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+      'xl/worksheets/sheet1.xml': `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="24" customWidth="1"/><col min="2" max="2" width="100" customWidth="1"/></cols><sheetData>${sheetRows}</sheetData><autoFilter ref="A7:B${rows.length}"/></worksheet>`
+    };
+    const zip = await buildDocxZip(files);
+    descargarBlob(new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'xlsx');
+    showToast('✓ Archivo de Excel descargado', 'success');
+  } catch (error) { console.error(error); showToast('No se pudo crear el archivo de Excel: ' + error.message, 'error'); }
+}
+
+async function descargarPowerPoint() {
+  try {
+    const esc = value => String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+    const groups = bloquesParaPresentacion();
+    const topic = document.getElementById('tema')?.value || 'Trabajo académico';
+    const slides = [{ title: topic, bullets: [`${currentUser?.nombre || 'Estudiante'}${currentUser?.universidad ? ` · ${currentUser.universidad}` : ''}`] }];
+    for (const group of groups) {
+      const chunks = group.paragraphs.flatMap(item => dividirTexto(item, 25));
+      if (!chunks.length) continue;
+      for (let i = 0; i < chunks.length; i += 5) slides.push({ title: group.title, bullets: chunks.slice(i, i + 5) });
+    }
+    const cx = 12192000, cy = 6858000;
+    const slideXml = slide => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr><p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500000" y="300000"/><a:ext cx="11200000" cy="950000"/></a:xfrm><a:solidFill><a:schemeClr val="accent1"/></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr wrap="square"/><a:lstStyle/><a:p><a:pPr algn="l"/><a:r><a:rPr lang="es-DO" sz="2800" b="1"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:latin typeface="Arial"/></a:rPr><a:t>${esc(slide.title)}</a:t></a:r><a:endParaRPr lang="es-DO"/></a:p></p:txBody></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Content"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="750000" y="1500000"/><a:ext cx="10800000" cy="4800000"/></a:xfrm><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr wrap="square"/><a:lstStyle/>${slide.bullets.map(text => `<a:p><a:pPr marL="300000" indent="-180000"><a:buChar char="•"/></a:pPr><a:r><a:rPr lang="es-DO" sz="1800"><a:solidFill><a:srgbClr val="222222"/></a:solidFill><a:latin typeface="Arial"/></a:rPr><a:t>${esc(text)}</a:t></a:r><a:endParaRPr lang="es-DO"/></a:p>`).join('')}</p:txBody></p:sp></p:spTree><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:cSld></p:sld>`;
+    const slideRels = '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>';
+    const slideIds = slides.map((_, i) => `<p:sldId id="${256 + i}" r:id="rId${i + 2}"/>`).join('');
+    const presentationRels = [`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>`, ...slides.map((_, i) => `<Relationship Id="rId${i + 2}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>`)].join('');
+    const master = '<?xml version="1.0" encoding="UTF-8"?><p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst><p:sldLayoutId id="1" r:id="rId1"/></p:sldLayoutIdLst><p:txStyles><p:titleStyle/><p:bodyStyle/><p:otherStyle/></p:txStyles></p:sldMaster>';
+    const layout = '<?xml version="1.0" encoding="UTF-8"?><p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1"><p:cSld name="Blank"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>';
+    const theme = '<?xml version="1.0" encoding="UTF-8"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Snow Academic"><a:themeElements><a:clrScheme name="Snow"><a:dk1><a:srgbClr val="222222"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="333333"/></a:dk2><a:lt2><a:srgbClr val="F5F5F5"/></a:lt2><a:accent1><a:srgbClr val="C7A544"/></a:accent1><a:accent2><a:srgbClr val="406080"/></a:accent2><a:accent3><a:srgbClr val="70AD47"/></a:accent3><a:accent4><a:srgbClr val="ED7D31"/></a:accent4><a:accent5><a:srgbClr val="A5A5A5"/></a:accent5><a:accent6><a:srgbClr val="4472C4"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="Arial"><a:majorFont><a:latin typeface="Arial"/></a:majorFont><a:minorFont><a:latin typeface="Arial"/></a:minorFont></a:fontScheme><a:fmtScheme name="Simple"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>';
+    const contentTypes = `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>${slides.map((_, i) => `<Override PartName="/ppt/slides/slide${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`).join('')}</Types>`;
+    const files = {
+      '[Content_Types].xml': contentTypes,
+      '_rels/.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>',
+      'ppt/presentation.xml': `<?xml version="1.0" encoding="UTF-8"?><p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${slideIds}</p:sldIdLst><p:sldSz cx="${cx}" cy="${cy}" type="wide"/><p:notesSz cx="6858000" cy="9144000"/></p:presentation>`,
+      'ppt/_rels/presentation.xml.rels': `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${presentationRels}</Relationships>`,
+      'ppt/slideMasters/slideMaster1.xml': master,
+      'ppt/slideMasters/_rels/slideMaster1.xml.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>',
+      'ppt/slideLayouts/slideLayout1.xml': layout,
+      'ppt/slideLayouts/_rels/slideLayout1.xml.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>',
+      'ppt/theme/theme1.xml': theme
+    };
+    slides.forEach((slide, i) => { files[`ppt/slides/slide${i + 1}.xml`] = slideXml(slide); files[`ppt/slides/_rels/slide${i + 1}.xml.rels`] = slideRels; });
+    const zip = await buildDocxZip(files);
+    descargarBlob(new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }), 'pptx');
+    showToast('✓ Presentación de PowerPoint descargada', 'success');
+  } catch (error) { console.error(error); showToast('No se pudo crear el PowerPoint: ' + error.message, 'error'); }
 }
 
 async function descargarWord() {
@@ -2073,7 +2354,7 @@ function crc32(data) {
 }
 
 // ── PROFILE SAVE ───────────────────────────────────────
-function guardarPerfil() {
+async function guardarPerfil() {
   currentUser.nombre      = document.getElementById('perfNombre').value.trim();
   currentUser.matricula   = document.getElementById('perfMatricula').value.trim();
   currentUser.universidad = document.getElementById('perfUni').value;
@@ -2084,6 +2365,7 @@ function guardarPerfil() {
   document.getElementById('cfgMatricula').textContent= currentUser.matricula || '—';
   document.getElementById('cfgUni').textContent      = currentUser.universidad || '—';
   document.getElementById('cfgCarrera').textContent  = currentUser.carrera   || '—';
+  await persistProfile();
   showToast('Perfil guardado ✓', 'success');
 }
 
@@ -2112,3 +2394,4 @@ updateConfig();
 </script>
 </body>
 </html>
+

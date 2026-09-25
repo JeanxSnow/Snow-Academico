@@ -1,29 +1,26 @@
 # Snow Académico
 
-Aplicación de prueba que sirve la página y la ruta `/api/generate` desde el mismo servidor Node. La clave de OpenRouter se lee únicamente desde `OPENROUTER_API_KEY`; nunca debe guardarse en `index.html`, GitHub ni en el navegador.
+Aplicación de apoyo para generar borradores académicos con OpenRouter. Firebase Authentication administra las cuentas y Cloud Firestore conserva el perfil, las sugerencias de asignatura/facilitador y los trabajos generados bajo el espacio privado de cada usuario.
 
-## Despliegue en Render
+## Configuración
 
-`render.yaml` define un servicio Node gratuito. Para publicarlo:
+- `OPENROUTER_API_KEY`: clave privada de OpenRouter. Guárdala únicamente en el entorno del servidor (por ejemplo, Render), nunca en GitHub ni en `index.html`.
+- `OPENROUTER_MODEL`: modelo principal de generación.
+- `FIREBASE_PROJECT_ID`: ID del proyecto Firebase (`snow-academico`). El servidor usa este ID para verificar los tokens de Firebase con los certificados públicos de Google; no requiere una clave privada de servicio.
+- `HOST` y `PORT`: dirección y puerto HTTP.
 
-1. Sube al repositorio `index.html`, `api-server.js`, `package.json`, `render.yaml`, `.gitignore`, `README.md` y `run-local.ps1`.
-2. Inicia sesión en Render y crea un **Blueprint** desde `JeanxSnow/Snow-Academico`.
-3. Cuando Render solicite `OPENROUTER_API_KEY`, introduce una clave nueva en el panel de Render como variable secreta. No la escribas en archivos ni en el repositorio.
-4. Al terminar el despliegue, abre el dominio HTTPS `*.onrender.com` que Render asigne. La página y la API quedan bajo el mismo dominio.
-5. Comprueba que `/health` responda `{"ok":true}` y prueba una generación desde la página.
+La configuración web de Firebase que aparece en `index.html` identifica el proyecto y la app, pero no contiene la contraseña de OpenRouter ni una clave privada. Firestore aplica reglas para que cada usuario lea y escriba solo en `/users/{uid}` y sus subcolecciones.
 
-Cada cambio subido al repo puede activar un nuevo despliegue. El plan gratuito duerme tras 15 minutos sin tráfico y el primer acceso después puede tardar cerca de un minuto. OpenRouter también puede aplicar límites o tener interrupciones; los modelos de respaldo ayudan, pero no garantizan disponibilidad absoluta.
+## Render
+
+Configura `OPENROUTER_API_KEY` como secreto y `FIREBASE_PROJECT_ID=snow-academico` como variable del servicio. En Firebase Authentication, el dominio del servicio Render debe aparecer en **Dominios autorizados**. `/health` comprueba que el servidor está disponible.
+
+## Cuentas y datos
+
+El registro usa correo y contraseña, sin verificación obligatoria del correo. Firebase mantiene la sesión en ese navegador hasta que el usuario cierre sesión o borre los datos del sitio. Para usar otra computadora o teléfono, el usuario inicia sesión una vez en ese dispositivo. El correo debe tener formato válido; la recuperación de contraseña requiere acceso a su bandeja.
+
+Cada usuario tiene un perfil y un historial de trabajos aislados. Los campos de asignatura y facilitador también se sincronizan con su cuenta. Snow Académico está en etapa de pruebas: revisa y corrige el contenido, las fuentes y los requisitos de la asignatura antes de entregar el trabajo.
 
 ## Ejecución local
 
-Requiere Node.js 20 o superior y una clave propia de OpenRouter. Abre PowerShell en esta carpeta y ejecuta:
-
-```powershell
-.\run-local.ps1
-```
-
-Copia la clave al portapapeles cuando el lanzador lo solicite. Deja la ventana abierta y visita `http://127.0.0.1:3000`. El lanzador usa Node del sistema o la copia de Node incluida en Codex si está disponible.
-
-## Alcance de esta prueba
-
-El registro y el inicio de sesión actuales se guardan localmente en cada navegador; no son cuentas reales compartidas. El acceso de Google tampoco está conectado. No introduzcas contraseñas reales ni información sensible.
+Requiere Node.js 20 o superior y una clave de OpenRouter. Copia `OPENROUTER_API_KEY` a tu entorno local y ejecuta `npm start`; visita `http://127.0.0.1:3000`. Firebase ya tiene `localhost` en los dominios autorizados.
