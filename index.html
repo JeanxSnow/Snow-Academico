@@ -767,7 +767,7 @@
             </button>
 
             <div class="generation-controls" id="generationControls">
-              <button class="btn btn-outline" id="pauseGenerationBtn" type="button" onclick="toggleGenerationPause()">Pausar vista</button>
+              <button class="btn btn-outline" id="pauseGenerationBtn" type="button" onclick="toggleGenerationPause()">Pausar visualización</button>
               <button class="btn btn-ghost" type="button" onclick="cancelGeneration()">Cancelar</button>
             </div>
 
@@ -1617,10 +1617,10 @@ function toggleGenerationPause() {
   generationPaused = !generationPaused;
   const button = document.getElementById('pauseGenerationBtn');
   const status = document.getElementById('generationStatus');
-  if (button) button.textContent = generationPaused ? 'Reanudar vista' : 'Pausar vista';
+  if (button) button.textContent = generationPaused ? 'Reanudar visualización' : 'Pausar visualización';
   if (status) status.textContent = generationPaused
-    ? 'Vista pausada. La IA sigue generando; pulsa Reanudar o Cancelar.'
-    : 'Generando… el texto aparecerá aquí conforme llegue.';
+    ? 'Visualización pausada; la generación continúa en segundo plano.'
+    : 'La generación sigue activa; el texto aparecerá aquí conforme llegue.';
   if (!generationPaused && generatedContent) {
     const preview = document.getElementById('previewWrap');
     preview.innerHTML = formatearContenido(generatedContent);
@@ -1635,12 +1635,31 @@ function cancelGeneration() {
 }
 
 function crearPromptContinuacion(promptOriginal, borrador, motivo = '') {
-  const contexto = String(borrador || '').trim();
+  const contexto = limpiarSalidaModelo(borrador);
   return `${promptOriginal}\n\nCONTINUACIÓN AUTOMÁTICA TRAS UN CORTE DEL PROVEEDOR:
 El texto que sigue ya fue generado y se conserva exactamente en la aplicación. No lo reescribas, resumas ni repitas. Continúa desde el último carácter recibido y entrega únicamente el texto que falta para completar el trabajo, conservando los marcadores, el estilo, el tema, el esquema, los objetivos y las reglas de citas. Si la última oración quedó cortada, complétala con naturalidad sin duplicarla. Completa las secciones finales que falten; no vuelvas al principio. ${motivo ? `Atención adicional: ${motivo}` : ''}
 
 BORRADOR YA RECIBIDO (contexto, no volver a emitir):
 ${contexto}`;
+}
+
+function limpiarSalidaModelo(texto) {
+  const patronesInternos = [
+    /\bwe need to (?:produce|write|draft|create)\b/i,
+    /\bnow (?:write|produce|draft|let's|lets)\b/i,
+    /\blet's (?:aim|write|draft|produce)\b/i,
+    /\bi should (?:write|include|produce|draft)\b/i,
+    /\bthe user (?:asks|requested|wants)\b/i,
+    /\bwe need around \d+ words\b/i,
+    /\b(?:drafting plan|word count target|let me think through|outline first)\b/i,
+    /^\s*\[(?:TITULO_SECCION|PARRAFO|SUBTITULO)\s*:/i
+  ];
+  return String(texto || '')
+    .split(/\r?\n/)
+    .filter(linea => !patronesInternos.some(patron => patron.test(linea)))
+    .join('\n')
+    .replace(/\n*\[(?:TITULO_SECCION|PARRAFO|SUBTITULO|REFER(?:ENCIA)?)(?::[^\]\r\n]*)?$/i, '')
+    .trim();
 }
 
 function esErrorReintentableGeneracion(error, intentoExpirado = false) {
@@ -1819,7 +1838,7 @@ async function generarTrabajo(continuarBorrador = false) {
   const generateButtonOriginalText = generateButton?.textContent || '';
   if (generateButton) generateButton.disabled = true;
   document.getElementById('generationControls').classList.add('visible');
-  document.getElementById('pauseGenerationBtn').textContent = 'Pausar vista';
+  document.getElementById('pauseGenerationBtn').textContent = 'Pausar visualización';
 
   // Auto-detectar tipo si no fue elegido manualmente
   if (analisis.tipoDetectado && !workTypeManuallySelected) seleccionarTipoDetectado(analisis.tipoDetectado);
@@ -1994,6 +2013,7 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
           ? 'El proveedor retomó el trabajo; el borrador anterior permanece intacto.'
           : 'Generando… el texto aparecerá aquí conforme llegue.';
         const finishReason = await readGenerationStream(res);
+        generatedContent = limpiarSalidaModelo(generatedContent);
         if (!generatedContent.trim()) throw new Error('El servicio no devolvió contenido.');
         if (finishReason === 'length') {
           if (reanudaciones >= maxReanudacionesAutomaticas) {
