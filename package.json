@@ -1,0 +1,12 @@
+{
+  "name": "snow-academico",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Snow Académico: web de apoyo para generar borradores académicos con OpenRouter.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node api-server.js"
+  }
+}
