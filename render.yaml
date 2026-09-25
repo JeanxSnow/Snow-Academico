@@ -10,8 +10,10 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: OPENROUTER_MODEL
-        value: google/gemma-4-31b-it:free
+        value: google/gemma-4-26b-a4b-it:free
       - key: OPENROUTER_API_KEY
         sync: false
       - key: FIREBASE_PROJECT_ID
         value: snow-academico
+      - key: ADMIN_UID
+        sync: false

@@ -570,6 +570,7 @@
 
       <div class="sidebar-user">
         <div class="user-name" id="sidebarName">Usuario</div>
+        <div id="adminBadge" hidden style="display:none;color:var(--gold);font-size:11px;font-weight:700;margin-top:3px">★ Administrador</div>
         <div class="user-plan">Cuenta personal</div>
       </div>
     </aside>
@@ -921,35 +922,46 @@
       <div id="page-admin" class="page">
         <div class="page-header">
           <h1 class="page-title">Panel de administrador</h1>
-          <p class="page-sub">Solo visible para ti</p>
+          <p class="page-sub">Información de uso, cuentas y errores. Nunca se muestran ni se cambian contraseñas desde aquí.</p>
         </div>
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">Usuarios registrados</div>
-            <div class="stat-val gold">0</div>
+            <div class="stat-val gold" id="adminUsersCount">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Trabajos generados</div>
-            <div class="stat-val">0</div>
+            <div class="stat-label">Trabajos guardados (aprox.)</div>
+            <div class="stat-val" id="adminWorksCount">—</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Activos hoy</div>
-            <div class="stat-val">0</div>
+            <div class="stat-val" id="adminActiveCount">—</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Errores del sistema</div>
-            <div class="stat-val" style="color:var(--danger)">0</div>
+            <div class="stat-label">Errores recientes</div>
+            <div class="stat-val" id="adminErrorsCount" style="color:var(--danger)">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Cuentas suspendidas</div>
+            <div class="stat-val" id="adminBannedCount">—</div>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:18px">
+          <div class="card-title">Cuentas registradas</div>
+          <div style="overflow-x:auto">
+            <table class="history-table"><thead><tr><th>Nombre</th><th>Correo</th><th>Registro</th><th>Último acceso</th><th>Recuperación</th><th>Acceso</th></tr></thead>
+              <tbody id="adminUsersTable"><tr><td colspan="6" style="color:var(--text2)">Carga el panel para ver las cuentas.</td></tr></tbody>
+            </table>
           </div>
         </div>
         <div class="card">
-          <div class="card-title">Comentarios de usuarios</div>
-          <div class="comment-card">
-            <div class="comment-meta">💡 Sugerencia — usuario@email.com — hace 2 horas</div>
-            <div class="comment-text">Sería genial poder elegir el interlineado del trabajo</div>
+          <div class="card-title">Registro de errores recientes</div>
+          <div style="overflow-x:auto">
+            <table class="history-table"><thead><tr><th>Fecha</th><th>Usuario</th><th>Etapa</th><th>Detalle</th></tr></thead>
+              <tbody id="adminErrorsTable"><tr><td colspan="4" style="color:var(--text2)">Sin errores registrados.</td></tr></tbody>
+            </table>
           </div>
-          <div style="text-align:center;color:var(--text2);font-size:13px;padding:20px">
-            Aquí aparecerán los comentarios de tus usuarios
-          </div>
+          <p class="page-sub" style="margin-top:12px">El registro guarda mensajes técnicos breves y no guarda contraseñas ni el contenido de los trabajos.</p>
         </div>
       </div>
 
@@ -1068,11 +1080,16 @@ function showScreen(name) {
 
 // ── PAGES ──────────────────────────────────────────────
 function showPage(name) {
+  if (name === 'admin' && !currentUser?.isAdmin) {
+    showToast('No tienes acceso a esta sección.', 'error');
+    return;
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   event?.target?.closest('.nav-item')?.classList.add('active');
   if (name === 'historial') void cargarHistorialTrabajos();
+  if (name === 'admin') void loadAdminPanel();
 }
 
 // ── AUTH TABS ──────────────────────────────────────────
@@ -1113,17 +1130,176 @@ async function loadFirebaseProfile(authUser, initialProfile = {}) {
     nombre: saved.nombre || initialProfile.nombre || authUser.displayName || '',
     matricula: saved.matricula || initialProfile.matricula || '',
     universidad: saved.universidad || initialProfile.universidad || '',
-    carrera: saved.carrera || initialProfile.carrera || '',
-    isAdmin: false
+    carrera: saved.carrera || initialProfile.carrera || ''
   };
-  if (!snapshot.exists || Object.keys(initialProfile).length) {
-    await ref.set({ ...user, createdAt: saved.createdAt || firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
-  }
+  await ref.set({
+    ...(!snapshot.exists || Object.keys(initialProfile).length ? user : {}),
+    createdAt: saved.createdAt || firebase.firestore.FieldValue.serverTimestamp(),
+    lastSeenAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
   if (saved.suggestions && typeof saved.suggestions === 'object') {
     try { localStorage.setItem(historyStorageKey(authUser.email || user.nombre), JSON.stringify(saved.suggestions)); } catch {}
   }
+  await syncAdminUserSummary(authUser, user, !snapshot.exists);
   return user;
 }
+
+async function syncAdminUserSummary(authUser, profile, isNew = false, addWork = false) {
+  try {
+    const ref = firebaseDb.collection('adminUsers').doc(authUser.uid);
+    const existing = await ref.get();
+    const data = {
+      uid: authUser.uid,
+      email: authUser.email || '',
+      nombre: profile.nombre || '',
+      lastSeenAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    const isFirstSummary = isNew || !existing.exists;
+    if (isFirstSummary) {
+      data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      data.workCount = addWork ? 1 : 0;
+    }
+    else if (addWork) data.workCount = firebase.firestore.FieldValue.increment(1);
+    await ref.set(data, { merge: true });
+  } catch (error) {
+    console.warn('No se pudo actualizar el resumen administrativo:', error);
+  }
+}
+
+async function checkAdminAccess(authUser) {
+  try {
+    const token = await authUser.getIdToken();
+    const response = await fetch('/api/admin/check', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+    if (!response.ok) return { isAdmin: false, isBanned: false };
+    const access = await response.json();
+    return { isAdmin: access.isAdmin === true, isBanned: access.isBanned === true };
+  } catch (error) {
+    console.warn('No se pudo comprobar el acceso de administrador:', error);
+    return { isAdmin: false, isBanned: false };
+  }
+}
+
+function logAppError(stage, error) {
+  const authUser = firebaseAuth.currentUser;
+  if (!authUser) return;
+  const safeCode = String(error?.code || error?.name || 'error').slice(0, 100);
+  const safeMessage = String(error?.message || error || 'Error sin detalle')
+    .replace(/sk-or-v1-[A-Za-z0-9_-]+/gi, '[clave oculta]')
+    .slice(0, 500);
+  void firebaseDb.collection('adminLogs').add({
+    uid: authUser.uid,
+    email: authUser.email || '',
+    stage: String(stage).slice(0, 80),
+    code: safeCode,
+    message: safeMessage,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).catch(logError => console.warn('No se pudo guardar el registro del error:', logError));
+}
+
+function dateForAdmin(value) {
+  if (!value) return '—';
+  const date = typeof value.toDate === 'function' ? value.toDate() : new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('es-DO');
+}
+
+async function sendAdminPasswordReset(email) {
+  if (!currentUser?.isAdmin || !email) return;
+  try {
+    await firebaseAuth.sendPasswordResetEmail(email);
+    showToast(`Se envió el enlace de recuperación a ${email}.`, 'success');
+  } catch (error) {
+    logAppError('admin-password-reset', error);
+    showToast(firebaseErrorMessage(error), 'error');
+  }
+}
+
+async function loadAdminPanel() {
+  if (!currentUser?.isAdmin) return;
+  const usersBody = document.getElementById('adminUsersTable');
+  const errorsBody = document.getElementById('adminErrorsTable');
+  usersBody.innerHTML = '<tr><td colspan="6">Cargando cuentas…</td></tr>';
+  errorsBody.innerHTML = '<tr><td colspan="4">Cargando errores…</td></tr>';
+  try {
+    const [usersSnapshot, errorsSnapshot, accessSnapshot] = await Promise.all([
+      firebaseDb.collection('adminUsers').get(),
+      firebaseDb.collection('adminLogs').orderBy('createdAt', 'desc').limit(50).get(),
+      firebaseDb.collection('userAccess').get()
+    ]);
+    const accessByUid = new Map(accessSnapshot.docs.map(doc => [doc.id, doc.data()]));
+    const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const activeToday = users.filter(user => {
+      const lastSeen = user.lastSeenAt?.toDate?.();
+      return lastSeen && lastSeen >= todayStart;
+    }).length;
+    const errors = errorsSnapshot.docs;
+    document.getElementById('adminUsersCount').textContent = String(users.length);
+    document.getElementById('adminWorksCount').textContent = String(users.reduce((total, user) => total + (Number(user.workCount) || 0), 0));
+    document.getElementById('adminActiveCount').textContent = String(activeToday);
+    document.getElementById('adminErrorsCount').textContent = String(errors.length);
+    document.getElementById('adminBannedCount').textContent = String([...accessByUid.values()].filter(access => access.banned === true).length);
+
+    usersBody.replaceChildren();
+    users.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    for (const user of users) {
+      const row = document.createElement('tr');
+      for (const value of [user.nombre || '—', user.email || '—', dateForAdmin(user.createdAt), dateForAdmin(user.lastSeenAt)]) {
+        const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell);
+      }
+      const actionCell = document.createElement('td');
+      const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'btn btn-outline';
+      reset.textContent = 'Enviar enlace'; reset.disabled = !user.email || user.id === firebaseAuth.currentUser.uid;
+      reset.title = reset.disabled ? 'No se puede enviar el enlace a esta cuenta' : 'Enviar enlace de recuperación por correo';
+      reset.addEventListener('click', () => void sendAdminPasswordReset(user.email));
+      actionCell.appendChild(reset); row.appendChild(actionCell);
+      const accessCell = document.createElement('td');
+      const banned = accessByUid.get(user.id)?.banned === true;
+      const accessButton = document.createElement('button'); accessButton.type = 'button'; accessButton.className = 'btn btn-outline';
+      accessButton.textContent = banned ? 'Reactivar' : 'Suspender';
+      accessButton.disabled = user.id === firebaseAuth.currentUser.uid;
+      accessButton.addEventListener('click', () => void setUserBan(user.id, user.email, !banned));
+      accessCell.appendChild(accessButton); row.appendChild(accessCell); usersBody.appendChild(row);
+    }
+    if (!users.length) usersBody.innerHTML = '<tr><td colspan="6">No hay cuentas registradas.</td></tr>';
+
+    errorsBody.replaceChildren();
+    for (const doc of errors) {
+      const item = doc.data(); const row = document.createElement('tr');
+      for (const value of [dateForAdmin(item.createdAt), item.email || item.uid || '—', item.stage || '—', `${item.code || 'Error'}: ${item.message || 'Sin detalle'}`]) {
+        const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell);
+      }
+      errorsBody.appendChild(row);
+    }
+    if (!errors.length) errorsBody.innerHTML = '<tr><td colspan="4">Sin errores registrados.</td></tr>';
+  } catch (error) {
+    logAppError('admin-panel-load', error);
+    usersBody.innerHTML = '<tr><td colspan="6">No se pudieron leer las cuentas. Revisa las reglas de Firestore.</td></tr>';
+    errorsBody.innerHTML = '<tr><td colspan="4">No se pudo leer el registro de errores. Revisa las reglas de Firestore.</td></tr>';
+    showToast('No se pudo cargar el panel de administración.', 'error');
+  }
+}
+
+async function setUserBan(uid, email, banned) {
+  if (!currentUser?.isAdmin || !uid || uid === firebaseAuth.currentUser?.uid) return;
+  const action = banned ? 'suspender el acceso de' : 'reactivar el acceso de';
+  if (!window.confirm(`¿Confirmas ${action} ${email || 'esta cuenta'}? La suspensión bloquea nuevas generaciones; no borra sus trabajos.`)) return;
+  try {
+    await firebaseDb.collection('userAccess').doc(uid).set({
+      uid, email: email || '', banned,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    showToast(banned ? 'Cuenta suspendida.' : 'Cuenta reactivada.', 'success');
+    await loadAdminPanel();
+  } catch (error) {
+    logAppError('admin-account-access', error);
+    showToast(firebaseErrorMessage(error), 'error');
+  }
+}
+
+window.addEventListener('error', event => logAppError('browser', event.error || event.message));
+window.addEventListener('unhandledrejection', event => logAppError('browser-promise', event.reason));
 
 function firebaseErrorMessage(error) {
   const messages = {
@@ -1146,7 +1322,7 @@ async function doLogin() {
   try {
     await firebaseReady;
     await firebaseAuth.signInWithEmailAndPassword(email, password);
-  } catch (error) { showToast(firebaseErrorMessage(error), 'error'); }
+  } catch (error) { logAppError('auth-login', error); showToast(firebaseErrorMessage(error), 'error'); }
 }
 
 async function doRegister() {
@@ -1162,8 +1338,11 @@ async function doRegister() {
     await firebaseReady;
     const credential = await firebaseAuth.createUserWithEmailAndPassword(email, password);
     currentUser = await loadFirebaseProfile(credential.user, { nombre, email, matricula, universidad, carrera });
+    const access = await checkAdminAccess(credential.user);
+    if (access.isBanned) { currentUser = null; await firebaseAuth.signOut(); showToast('Esta cuenta está suspendida. Contacta con administración.', 'error'); return; }
+    currentUser.isAdmin = access.isAdmin;
     enterApp();
-  } catch (error) { showToast(firebaseErrorMessage(error), 'error'); }
+  } catch (error) { logAppError('auth-register', error); showToast(firebaseErrorMessage(error), 'error'); }
 }
 
 async function logoutUser() {
@@ -1181,12 +1360,12 @@ async function persistProfile() {
       matricula: currentUser.matricula || '',
       universidad: currentUser.universidad || '',
       carrera: currentUser.carrera || '',
-      isAdmin: false,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
     await userProfileRef().set(profile, { merge: true });
+    await syncAdminUserSummary(firebaseAuth.currentUser, profile);
     currentUser = { ...currentUser, ...profile };
-  } catch (error) { showToast(firebaseErrorMessage(error), 'error'); }
+  } catch (error) { logAppError('profile-save', error); showToast(firebaseErrorMessage(error), 'error'); }
 }
 
 firebaseReady.then(() => firebaseAuth.onAuthStateChanged(async authUser => {
@@ -1198,9 +1377,13 @@ firebaseReady.then(() => firebaseAuth.onAuthStateChanged(async authUser => {
   if (currentUser?.uid === authUser.uid) return;
   try {
     currentUser = await loadFirebaseProfile(authUser);
+    const access = await checkAdminAccess(authUser);
+    if (access.isBanned) { currentUser = null; await firebaseAuth.signOut(); showToast('Esta cuenta está suspendida. Contacta con administración.', 'error'); return; }
+    currentUser.isAdmin = access.isAdmin;
     enterApp();
   } catch (error) {
     console.error('No se pudo cargar el perfil:', error);
+    logAppError('profile-load', error);
     showToast(firebaseErrorMessage(error), 'error');
   }
 })).catch(error => {
@@ -1213,7 +1396,10 @@ function enterApp() {
     void persistProfile();
   }
   document.getElementById('fechaEntrega').value = new Date().toISOString().split('T')[0];
-  document.getElementById('sidebarName').textContent = currentUser.nombre;
+  document.getElementById('sidebarName').textContent = currentUser.nombre || currentUser.email?.split('@')[0] || 'Estudiante';
+  const adminBadge = document.getElementById('adminBadge');
+  adminBadge.hidden = !currentUser.isAdmin;
+  adminBadge.style.display = currentUser.isAdmin ? 'block' : 'none';
   document.getElementById('cfgNombre').textContent   = currentUser.nombre     || '—';
   document.getElementById('cfgMatricula').textContent= currentUser.matricula  || '—';
   document.getElementById('cfgUni').textContent      = currentUser.universidad|| '—';
@@ -1238,12 +1424,14 @@ function enterApp() {
     currentUser.universidad = uniGen.value;
     void persistProfile();
   }
-  if (currentUser.isAdmin) {
-    document.getElementById('adminSection').style.display = 'block';
-    document.getElementById('adminLink').style.display = 'flex';
-  }
+  document.getElementById('adminSection').style.display = currentUser.isAdmin ? 'block' : 'none';
+  document.getElementById('adminLink').style.display = currentUser.isAdmin ? 'flex' : 'none';
   showScreen('app');
-  showToast('Bienvenido, ' + currentUser.nombre + ' 👋', 'success');
+  if (!currentUser.nombre || !currentUser.matricula || !currentUser.carrera) {
+    showToast('Sesión iniciada. Completa los datos que faltan en “Mi perfil” para la portada.', 'info');
+  } else {
+    showToast('Bienvenido, ' + currentUser.nombre + ' 👋', 'success');
+  }
 }
 
 function actualizarUniversidadTrabajo() {
@@ -1661,6 +1849,7 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
     clearTimeout(clientTimeout);
     if (e.name === 'AbortError') {
       if (generationTimedOut) {
+        logAppError('generation-timeout', e);
         clearInterval(paintTimer);
         generationInProgress = false; generationPaused = false; generationController = null;
         const borradorPreservado = mostrarBorradorIncompleto('el proveedor tardo mas de 3 minutos y se detuvo la solicitud.');
@@ -1682,6 +1871,7 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
       return;
     }
     console.error('Error al generar el trabajo:', e);
+    logAppError('generation', e);
     clearInterval(paintTimer);
     document.getElementById('spinnerWrap').classList.remove('visible');
     document.getElementById('generationControls').classList.remove('visible');
@@ -1711,7 +1901,7 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
   document.getElementById('previewActions').classList.add('visible');
   let guardadoEnCuenta = true;
   try { await guardarTrabajoEnFirestore(); }
-  catch (error) { guardadoEnCuenta = false; console.warn('No se pudo sincronizar el trabajo:', error); }
+  catch (error) { guardadoEnCuenta = false; logAppError('work-save', error); console.warn('No se pudo sincronizar el trabajo:', error); }
   const mensajeGeneracion = advertenciaExtensionCorta
     ? `Trabajo generado. Quedó más corto de lo aproximado (${palabrasGeneradas} palabras); revísalo antes de descargar.`
     : 'Trabajo generado ✓ Revísalo antes de descargar';
@@ -1731,6 +1921,7 @@ async function guardarTrabajoEnFirestore() {
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     createdAtClient: new Date().toISOString()
   });
+  await syncAdminUserSummary(firebaseAuth.currentUser, currentUser, false, true);
 }
 
 async function cargarHistorialTrabajos() {

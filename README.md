@@ -1,26 +1,28 @@
 # Snow Académico
 
-Aplicación de apoyo para generar borradores académicos con OpenRouter. Firebase Authentication administra las cuentas y Cloud Firestore conserva el perfil, las sugerencias de asignatura/facilitador y los trabajos generados bajo el espacio privado de cada usuario.
+Aplicación de prueba para generar borradores académicos. Usa OpenRouter para la generación y Firebase Authentication/Cloud Firestore para cuentas, perfiles, sugerencias e historial privado por usuario.
 
-## Configuración
+## Variables de entorno en Render
 
-- `OPENROUTER_API_KEY`: clave privada de OpenRouter. Guárdala únicamente en el entorno del servidor (por ejemplo, Render), nunca en GitHub ni en `index.html`.
-- `OPENROUTER_MODEL`: modelo principal de generación.
-- `FIREBASE_PROJECT_ID`: ID del proyecto Firebase (`snow-academico`). El servidor usa este ID para verificar los tokens de Firebase con los certificados públicos de Google; no requiere una clave privada de servicio.
-- `HOST` y `PORT`: dirección y puerto HTTP.
+- `OPENROUTER_API_KEY`: clave privada de OpenRouter. Guárdala solo como secreto en Render; no la publiques en GitHub ni en `index.html`.
+- `OPENROUTER_MODEL`: modelo principal. El valor inicial es `google/gemma-4-26b-a4b-it:free`; se solicitan proveedores de menor latencia y se conservan modelos alternativos.
+- `FIREBASE_PROJECT_ID`: `snow-academico`.
+- `ADMIN_UID`: UID Firebase de la única cuenta autorizada para el panel. No uses solo el correo ni aceptes un indicador de administrador editable por el navegador.
 
-La configuración web de Firebase que aparece en `index.html` identifica el proyecto y la app, pero no contiene la contraseña de OpenRouter ni una clave privada. Firestore aplica reglas para que cada usuario lea y escriba solo en `/users/{uid}` y sus subcolecciones.
+El servidor valida los tokens de Firebase con certificados públicos; no requiere una clave de servicio.
 
-## Render
+## Panel de administración
 
-Configura `OPENROUTER_API_KEY` como secreto y `FIREBASE_PROJECT_ID=snow-academico` como variable del servicio. En Firebase Authentication, el dominio del servicio Render debe aparecer en **Dominios autorizados**. `/health` comprueba que el servidor está disponible.
+El panel presenta correos y resúmenes limitados de las cuentas, actividad aproximada, trabajos guardados y errores técnicos recientes. No muestra trabajos ni contraseñas. La recuperación envía el enlace oficial de Firebase al correo del usuario; el administrador no lee ni cambia contraseñas. Puede suspender o reactivar una cuenta; la suspensión bloquea la generación desde el servidor y no borra sus trabajos.
 
-## Cuentas y datos
+Publica las reglas de `firestore.rules` en Firebase Console. Esas reglas limitan los perfiles y trabajos a cada propietario; el administrador solo puede listar `adminUsers` y `userAccess` y leer `adminLogs`. Cada cuenta solo puede escribir su propio resumen y sus propios errores técnicos. Solo la cuenta administradora puede crear o cambiar el estado de suspensión.
 
-El registro usa correo y contraseña, sin verificación obligatoria del correo. Firebase mantiene la sesión en ese navegador hasta que el usuario cierre sesión o borre los datos del sitio. Para usar otra computadora o teléfono, el usuario inicia sesión una vez en ese dispositivo. El correo debe tener formato válido; la recuperación de contraseña requiere acceso a su bandeja.
+## Seguridad y pruebas
 
-Cada usuario tiene un perfil y un historial de trabajos aislados. Los campos de asignatura y facilitador también se sincronizan con su cuenta. Snow Académico está en etapa de pruebas: revisa y corrige el contenido, las fuentes y los requisitos de la asignatura antes de entregar el trabajo.
+El registro no exige verificación de correo. La recuperación de contraseña requiere acceso al buzón asociado. El plan gratuito de Render puede tardar en despertar y los proveedores gratuitos de OpenRouter pueden limitar, demorar o interrumpir solicitudes; no se puede garantizar disponibilidad absoluta.
+
+Revisa, corrige y verifica los trabajos, las fuentes y los requisitos de la asignatura antes de enviarlos al docente o a la universidad.
 
 ## Ejecución local
 
-Requiere Node.js 20 o superior y una clave de OpenRouter. Copia `OPENROUTER_API_KEY` a tu entorno local y ejecuta `npm start`; visita `http://127.0.0.1:3000`. Firebase ya tiene `localhost` en los dominios autorizados.
+Requiere Node.js 20 o superior. Copia `.env.example` a `.env`, agrega tu clave de OpenRouter sin compartirla y ejecuta `npm start`; después abre `http://127.0.0.1:3000`. No subas `.env` a GitHub.

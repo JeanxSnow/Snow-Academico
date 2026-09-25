@@ -1,9 +1,9 @@
 Snow Académico — versión de prueba
 
-La página usa Firebase Authentication y Cloud Firestore para guardar las cuentas, el perfil, las sugerencias de asignatura/facilitador y el historial de trabajos. Cada usuario solo puede acceder a sus propios datos. El inicio de sesión se conserva en el dispositivo; al usar uno nuevo, inicia sesión allí una vez.
+La página usa Firebase Authentication y Cloud Firestore para guardar cuentas, perfil, sugerencias e historial. Cada usuario accede solo a sus propios datos. La sesión se conserva por dispositivo; al usar uno nuevo, inicia sesión allí una vez.
 
 AVISO PARA QUIENES USAN LA PÁGINA
-Snow Académico está en etapa de pruebas. Revisa, corrige y verifica el contenido y las fuentes de cada trabajo frente a las instrucciones de tu asignatura antes de enviarlo a tu docente o universidad. La herramienta puede cometer errores y no sustituye las instrucciones del curso.
+Snow Académico está en etapa de pruebas. Revisa, corrige y verifica el contenido y las fuentes frente a las instrucciones de la asignatura antes de enviar el trabajo al docente o la universidad. La herramienta puede cometer errores y no sustituye las instrucciones del curso.
 
 EJECUCIÓN LOCAL
 Se necesita Node.js 20 o superior. Abra PowerShell en esta carpeta y ejecute:
@@ -13,6 +13,8 @@ Se necesita Node.js 20 o superior. Abra PowerShell en esta carpeta y ejecute:
 Copie una clave de OpenRouter al portapapeles cuando se le solicite. Deje abierta la ventana y visite http://127.0.0.1:3000. No comparta la clave ni la suba a GitHub.
 
 PUBLICACIÓN EN RENDER
-El repositorio usa render.yaml para servir la página y la API en el mismo servicio. Configure OPENROUTER_API_KEY como secreto en Render y FIREBASE_PROJECT_ID con el valor snow-academico. El dominio snow-academico.onrender.com está autorizado en Firebase Authentication.
+Configure OPENROUTER_API_KEY como secreto en Render, FIREBASE_PROJECT_ID como snow-academico y ADMIN_UID como el UID Firebase de la cuenta administradora. No use el correo como único control de acceso. El dominio snow-academico.onrender.com debe estar autorizado en Firebase Authentication.
 
-Las cuentas no requieren verificar el correo, pero la recuperación de contraseña sí necesita acceso a la bandeja asociada. El plan gratuito de Render puede tardar al despertar y OpenRouter puede limitar o interrumpir solicitudes; ningún proveedor garantiza disponibilidad absoluta.
+Publique las reglas de firestore.rules desde Firebase Console. Los usuarios solo acceden a sus perfiles e historial; el administrador ve correos y resúmenes limitados de adminUsers, suspende o reactiva cuentas mediante userAccess y consulta errores técnicos en adminLogs. La suspensión bloquea la generación en el servidor, pero no borra trabajos. No se exponen los trabajos ni las contraseñas.
+
+La recuperación de contraseña envía el enlace oficial de Firebase al usuario. El plan gratuito de Render puede tardar al despertar y OpenRouter puede limitar o interrumpir solicitudes; ningún proveedor garantiza disponibilidad absoluta.

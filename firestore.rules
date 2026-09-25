@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.uid == 'Bu5y63hKbkNs6r1rvBD70KTGsMb2';
+    }
+
+    // Cada usuario solo puede acceder a su perfil y a sus documentos/trabajos.
+    match /users/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+
+      match /{document=**} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+    }
+
+    // Resumen mínimo de cuenta para las métricas del panel, sin perfiles ni trabajos.
+    match /adminUsers/{userId} {
+      allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'nombre', 'createdAt', 'lastSeenAt', 'workCount', 'updatedAt'
+        ])
+        && request.resource.data.nombre is string
+        && request.resource.data.workCount is int
+        && request.resource.data.workCount >= 0;
+      allow delete: if false;
+    }
+
+    // Los usuarios pueden agregar errores técnicos propios; solo el administrador los lee.
+    match /adminLogs/{logId} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'stage', 'code', 'message', 'createdAt'
+        ])
+        && request.resource.data.stage is string
+        && request.resource.data.stage.size() <= 80
+        && request.resource.data.code is string
+        && request.resource.data.code.size() <= 100
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 500
+        && request.resource.data.createdAt == request.time;
+      allow get, list: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // El usuario puede consultar solo su estado; solo el administrador puede suspender o reactivar.
+    match /userAccess/{userId} {
+      allow get: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow list: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.uid == userId
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'banned', 'updatedAt'])
+        && request.resource.data.email is string
+        && request.resource.data.banned is bool
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+  }
+}

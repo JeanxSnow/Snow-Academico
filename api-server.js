@@ -9,10 +9,11 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
 const INDEX_FILE = process.env.INDEX_FILE || path.join(__dirname, 'index.html');
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'snow-academico';
-const MODEL = process.env.OPENROUTER_MODEL || 'google/gemma-4-31b-it:free';
+const ADMIN_UID = process.env.ADMIN_UID || '';
+const MODEL = process.env.OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it:free';
 // OpenRouter tries these models in order when a provider is rate-limited or unavailable.
 const FALLBACK_MODELS = [
-  'google/gemma-4-26b-a4b-it:free',
+  'google/gemma-4-31b-it:free',
   'openrouter/free'
 ];
 const MAX_BODY = 512 * 1024;
@@ -92,15 +93,36 @@ async function getFirebaseUser(req) {
     const signedData = Buffer.from(`${parts[0]}.${parts[1]}`);
     const signature = Buffer.from(parts[2], 'base64url');
     if (!crypto.verify('RSA-SHA256', signedData, crypto.createPublicKey(certificate), signature)) return null;
-    return { uid: claims.sub, email: claims.email || '', emailVerified: claims.email_verified === true };
+    return { uid: claims.sub, email: claims.email || '', emailVerified: claims.email_verified === true, token };
   } catch (error) {
     console.error('Firebase token verification error:', error.message);
     return null;
   }
 }
+async function getAccountBanStatus(firebaseUser) {
+  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(FIREBASE_PROJECT_ID)}/databases/(default)/documents/userAccess/${encodeURIComponent(firebaseUser.uid)}`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${firebaseUser.token}` } });
+  if (response.status === 404) return false;
+  if (!response.ok) throw new Error(`Firestore account access check failed: ${response.status}`);
+  const document = await response.json();
+  return document.fields?.banned?.booleanValue === true;
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     return send(res, 200, { ok: true }, 'application/json; charset=utf-8');
+  }
+  if (req.method === 'GET' && req.url === '/api/admin/check') {
+    const firebaseUser = await getFirebaseUser(req);
+    if (!firebaseUser) return send(res, 401, { error: 'Inicia sesión para continuar.' });
+    const isAdmin = Boolean(ADMIN_UID && firebaseUser.uid === ADMIN_UID);
+    try {
+      const isBanned = await getAccountBanStatus(firebaseUser);
+      return send(res, 200, { isAdmin, isBanned }, 'application/json; charset=utf-8');
+    } catch (error) {
+      console.error('Account access check failed:', error.message);
+      return send(res, 503, { error: 'No se pudo verificar el acceso a esta cuenta. Intenta de nuevo.' });
+    }
   }
   if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
     try {
@@ -123,6 +145,14 @@ const server = http.createServer(async (req, res) => {
   }
   const firebaseUser = await getFirebaseUser(req);
   if (!firebaseUser) return send(res, 401, { error: 'Inicia sesión para generar un trabajo.' });
+  try {
+    if (await getAccountBanStatus(firebaseUser)) {
+      return send(res, 403, { error: 'Esta cuenta está suspendida. Contacta con administración.' });
+    }
+  } catch (error) {
+    console.error('Account access check failed:', error.message);
+    return send(res, 503, { error: 'No se pudo verificar el acceso a esta cuenta. Intenta de nuevo.' });
+  }
 
   let upstreamTimeout;
   try {
@@ -156,6 +186,7 @@ const server = http.createServer(async (req, res) => {
       },
       body: JSON.stringify({
         models: [MODEL, ...FALLBACK_MODELS],
+        provider: { sort: 'latency' },
         stream: input.stream === true,
         max_tokens: maxTokens,
         temperature: 0.25,
