@@ -429,7 +429,7 @@
   <div class="nav-logo">Snow <span>Académico</span></div>
   <div class="nav-right">
     <button class="theme-toggle" onclick="toggleTheme()" title="Cambiar tema" id="themeBtn">☀️</button>
-    <button class="btn btn-ghost" onclick="showScreen('auth')" id="logoutBtn" style="display:none">Cerrar sesión</button>
+    <button class="btn btn-ghost" onclick="localStorage.removeItem('snow_sesion'); currentUser=null; showScreen('auth');" id="logoutBtn" style="display:none">Cerrar sesión</button>
   </div>
 </nav>
 
@@ -955,46 +955,80 @@ function switchTab(tab) {
   document.getElementById('tab-register').style.display = tab === 'register' ? 'block' : 'none';
 }
 
-// ── DEMO LOGIN ─────────────────────────────────────────
+// ── AUTH CON LOCALSTORAGE ────────────────────────────────
 function doLogin() {
-  const email = document.getElementById('loginEmail').value;
-  if (!email) { showToast('Ingresa tu correo', 'error'); return; }
-  currentUser = {
-    nombre: 'Usuario Demo', matricula: '2024-0001',
-    universidad: '', carrera: 'Administración',
-    email, isAdmin: email.includes('admin')
-  };
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPass').value.trim();
+  if (!email || !pass) { showToast('Completa correo y contraseña', 'error'); return; }
+
+  const usuarios = JSON.parse(localStorage.getItem('snow_usuarios') || '{}');
+  const user = usuarios[email.toLowerCase()];
+
+  if (!user) { showToast('Este correo no está registrado', 'error'); return; }
+  if (user.pass !== btoa(pass)) { showToast('Contraseña incorrecta', 'error'); return; }
+
+  currentUser = { ...user, email, isAdmin: email.includes('admin') };
+  localStorage.setItem('snow_sesion', JSON.stringify(currentUser));
   enterApp();
 }
 
 function doRegister() {
-  const nombre = document.getElementById('regName').value;
-  const email = document.getElementById('regEmail').value;
-  if (!nombre || !email) { showToast('Completa todos los campos', 'error'); return; }
-  currentUser = {
-    nombre, email,
-    matricula: document.getElementById('regMatricula').value,
-    universidad: document.getElementById('regUni').value,
-    carrera: document.getElementById('regCarrera').value,
-    isAdmin: false
-  };
+  const nombre    = document.getElementById('regName').value.trim();
+  const email     = document.getElementById('regEmail').value.trim();
+  const pass      = document.getElementById('regPass').value.trim();
+  const matricula = document.getElementById('regMatricula').value.trim();
+  const universidad = document.getElementById('regUni').value;
+  const carrera   = document.getElementById('regCarrera').value.trim();
+
+  if (!nombre || !email || !pass) {
+    showToast('Nombre, correo y contraseña son obligatorios', 'error'); return;
+  }
+  if (pass.length < 6) {
+    showToast('La contraseña debe tener al menos 6 caracteres', 'error'); return;
+  }
+  if (!email.includes('@')) {
+    showToast('Correo no válido', 'error'); return;
+  }
+
+  const usuarios = JSON.parse(localStorage.getItem('snow_usuarios') || '{}');
+  const key = email.toLowerCase();
+  if (usuarios[key]) { showToast('Este correo ya está registrado. Inicia sesión.', 'error'); return; }
+
+  const nuevoUser = { nombre, pass: btoa(pass), matricula, universidad, carrera, isAdmin: false };
+  usuarios[key] = nuevoUser;
+  localStorage.setItem('snow_usuarios', JSON.stringify(usuarios));
+
+  currentUser = { ...nuevoUser, email, isAdmin: email.includes('admin') };
+  localStorage.setItem('snow_sesion', JSON.stringify(currentUser));
   enterApp();
 }
 
 function enterApp() {
-  // Set today's date
   document.getElementById('fechaEntrega').value = new Date().toISOString().split('T')[0];
-  // Fill profile sidebar
   document.getElementById('sidebarName').textContent = currentUser.nombre;
-  document.getElementById('cfgNombre').textContent = currentUser.nombre || '—';
-  document.getElementById('cfgMatricula').textContent = currentUser.matricula || '—';
-  document.getElementById('cfgUni').textContent = currentUser.universidad || '—';
-  document.getElementById('cfgCarrera').textContent = currentUser.carrera || '—';
-  // Fill profile page
-  document.getElementById('perfNombre').value = currentUser.nombre || '';
-  document.getElementById('perfMatricula').value = currentUser.matricula || '';
-  document.getElementById('perfCarrera').value = currentUser.carrera || '';
-  // Admin
+  document.getElementById('cfgNombre').textContent   = currentUser.nombre     || '—';
+  document.getElementById('cfgMatricula').textContent= currentUser.matricula  || '—';
+  document.getElementById('cfgUni').textContent      = currentUser.universidad|| '—';
+  document.getElementById('cfgCarrera').textContent  = currentUser.carrera    || '—';
+  document.getElementById('perfNombre').value    = currentUser.nombre     || '';
+  document.getElementById('perfMatricula').value = currentUser.matricula  || '';
+  document.getElementById('perfCarrera').value   = currentUser.carrera    || '';
+  // Sincronizar universidad en perfil y en generador
+  const perfUni = document.getElementById('perfUni');
+  const uniGen  = document.getElementById('uniGen');
+  if (currentUser.universidad) {
+    for (const sel of [perfUni, uniGen]) {
+      for (const opt of sel.options) {
+        if (opt.value === currentUser.universidad || opt.text === currentUser.universidad) {
+          sel.value = opt.value; break;
+        }
+      }
+    }
+  }
+  // currentUser.universidad puede venir de perfil o del selector al registrarse
+  if (!currentUser.universidad && uniGen) {
+    currentUser.universidad = uniGen.value;
+  }
   if (currentUser.isAdmin) {
     document.getElementById('adminSection').style.display = 'block';
     document.getElementById('adminLink').style.display = 'flex';
@@ -1002,6 +1036,17 @@ function enterApp() {
   showScreen('app');
   showToast('Bienvenido, ' + currentUser.nombre + ' 👋', 'success');
 }
+
+// Auto-login si hay sesión guardada
+(function autoLogin() {
+  try {
+    const sesion = localStorage.getItem('snow_sesion');
+    if (sesion) {
+      currentUser = JSON.parse(sesion);
+      enterApp();
+    }
+  } catch(e) { localStorage.removeItem('snow_sesion'); }
+})();
 
 // ── WORK TYPE ──────────────────────────────────────────
 function selectWorkType(el, tipo) {
