@@ -1205,15 +1205,11 @@ async function generarTrabajo() {
   const palabrasObjetivo = Math.max(300, paginasObjetivo * 300);
   const promptMaestro = `Redacta en español un trabajo académico completo sobre el tema indicado. Debe desarrollar ideas concretas y conectadas; queda prohibido sustituir el análisis con frases genéricas que solo repitan que el tema es importante.
 
-DATOS PARA LA PORTADA:
-- Estudiante: ${nombre}
-- Matrícula: ${matricula}
-- Universidad: ${universidad}
-- Carrera: ${carrera}
+DATOS ACADÉMICOS:
 - Asignatura: ${materia || '[Asignatura]'}
-- Facilitador: ${document.getElementById('facilitador')?.value.trim() || '[Facilitador]'}
 - Tema: ${tema || '[Tema del trabajo]'}
-- Fecha: ${fecha}
+
+La página añadirá la portada usando los datos del perfil localmente. No solicites ni inventes nombres, matrícula, correo, universidad, facilitador o fecha dentro del texto generado.
 
 INDICACIONES DEL DOCENTE (tienen prioridad sobre las pautas generales):
 ${instrucciones || 'Desarrolla el tema solicitado con introducción, desarrollo, conclusión y referencias.'}
