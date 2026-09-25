@@ -1774,6 +1774,7 @@ function revisarCitasAPA(texto, requiereAPA) {
 }
 
 function mostrarBorradorIncompleto(motivo) {
+  generatedContent = limpiarSalidaModelo(generatedContent);
   const texto = generatedContent.trim();
   const preview = document.getElementById('previewWrap');
   if (!texto || !/^\[TITULO_SECCION:\s*.+?\]\s*$/im.test(texto)) return false;
