@@ -17,7 +17,8 @@ const FALLBACK_MODELS = [
   'openrouter/free'
 ];
 const MAX_BODY = 512 * 1024;
-const UPSTREAM_TIMEOUT_MS = 180000;
+const UPSTREAM_IDLE_TIMEOUT_MS = 120000;
+const UPSTREAM_TOTAL_TIMEOUT_MS = 480000;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 12;
 const requestCounts = new Map();
@@ -155,9 +156,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   let upstreamTimeout;
+  let upstreamTotalTimeout;
+  let streamHeartbeat;
   try {
     const startedAt = Date.now();
-    console.log(`Solicitud de generacion recibida. Modelos: ${[MODEL, ...FALLBACK_MODELS].join(' -> ')}. Consultando OpenRouter...`);
     let raw = '';
     for await (const chunk of req) {
       raw += chunk;
@@ -169,10 +171,19 @@ const server = http.createServer(async (req, res) => {
     if (typeof input.prompt !== 'string' || !input.prompt.trim()) {
       return send(res, 400, { error: 'Falta el contenido del trabajo.' });
     }
+    const configuredModels = [MODEL, ...FALLBACK_MODELS];
+    const fallbackAttempt = Math.max(0, Math.floor(Number(input.fallbackAttempt) || 0)) % configuredModels.length;
+    const modelChoices = [...configuredModels.slice(fallbackAttempt), ...configuredModels.slice(0, fallbackAttempt)];
+    console.log(`Solicitud de generacion recibida. Intento ${fallbackAttempt + 1}; modelos: ${modelChoices.join(' -> ')}. Consultando OpenRouter...`);
     const requestedTokens = Number(input.maxTokens || 6000);
     const maxTokens = Math.min(16000, Math.max(1000, Math.floor(requestedTokens)));
     const upstreamController = new AbortController();
-    upstreamTimeout = setTimeout(() => upstreamController.abort(new Error('timeout')), UPSTREAM_TIMEOUT_MS);
+    const resetIdleTimeout = () => {
+      clearTimeout(upstreamTimeout);
+      upstreamTimeout = setTimeout(() => upstreamController.abort(new Error('upstream idle timeout')), UPSTREAM_IDLE_TIMEOUT_MS);
+    };
+    resetIdleTimeout();
+    upstreamTotalTimeout = setTimeout(() => upstreamController.abort(new Error('upstream total timeout')), UPSTREAM_TOTAL_TIMEOUT_MS);
     res.on('close', () => {
       if (!res.writableEnded) upstreamController.abort(new Error('client disconnected'));
     });
@@ -185,19 +196,20 @@ const server = http.createServer(async (req, res) => {
         'x-title': 'Snow Académico'
       },
       body: JSON.stringify({
-        models: [MODEL, ...FALLBACK_MODELS],
+        models: modelChoices,
         provider: { sort: 'latency' },
         stream: input.stream === true,
         max_tokens: maxTokens,
         temperature: 0.25,
         messages: [
-          { role: 'system', content: 'Eres un redactor académico cuidadoso. Entrega únicamente el trabajo final solicitado en español y en el formato de marcadores indicado por el usuario. No expongas razonamientos, borradores, planes, instrucciones internas ni comentarios sobre cómo vas a responder. No inventes hechos ni referencias. No presentes cifras, resultados, estudios, organizaciones ni casos como reales si no puedes respaldarlos con una fuente identificable; marca con claridad como hipotéticos los ejemplos inventados y no los atribuyas a estudios. Ajusta el nivel de tecnicismo a la asignatura y carrera, define las siglas necesarias y usa ejemplos pertinentes a ese campo cuando ayuden. Incluye toda sección pedida expresamente, sin confundir una mención temática con una sección formal. Cuando se solicite APA 7.ª, ordena las referencias alfabéticamente por el primer autor o institución y comprueba la correspondencia entre citas y referencias. Completa todas las secciones antes de terminar. Si no puedes completar el trabajo, indícalo brevemente en lugar de presentar un borrador como final.' },
+          { role: 'system', content: 'Eres un redactor académico cuidadoso. Entrega únicamente el trabajo final solicitado en español y en el formato de marcadores indicado por el usuario. No expongas razonamientos, borradores, planes, instrucciones internas ni comentarios sobre cómo vas a responder. No inventes hechos ni referencias. No presentes cifras, resultados, estudios, organizaciones ni casos como reales si no puedes respaldarlos con una fuente identificable; marca con claridad como hipotéticos los ejemplos inventados y no los atribuyas a estudios. Ajusta el nivel de tecnicismo a la asignatura y carrera, define las siglas necesarias y usa ejemplos pertinentes a ese campo cuando ayuden. Incluye toda sección pedida expresamente, sin confundir una mención temática con una sección formal. Cuando se solicite APA 7.ª, ordena las referencias alfabéticamente por el primer autor o institución y comprueba que las citas de autor y año y las referencias coincidan en ambos sentidos. Si el mensaje contiene una continuación y un borrador previo, considéralo como el mismo trabajo: no lo reinicies, no dupliques lo ya entregado y continúa exactamente desde su final para completar las partes pendientes. Completa todas las secciones antes de terminar. Si no puedes completar el trabajo, indícalo brevemente en lugar de presentar un borrador como final.' },
           { role: 'user', content: input.prompt }
         ]
       })
     });
     if (!upstream.ok) {
       clearTimeout(upstreamTimeout);
+      clearTimeout(upstreamTotalTimeout);
       const data = await upstream.json().catch(() => ({}));
       const upstreamMessage = data?.error?.message || 'Sin detalle del proveedor';
       console.error('OpenRouter API error:', upstream.status, upstreamMessage);
@@ -206,6 +218,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (input.stream === false) {
       clearTimeout(upstreamTimeout);
+      clearTimeout(upstreamTotalTimeout);
       const data = await upstream.json();
       const content = data.choices?.[0]?.message?.content;
       if (typeof content !== 'string' || !content.trim()) {
@@ -217,6 +230,7 @@ const server = http.createServer(async (req, res) => {
 
     if (!upstream.body) {
       clearTimeout(upstreamTimeout);
+      clearTimeout(upstreamTotalTimeout);
       return send(res, 502, { error: 'OpenRouter no inicio la transmision del texto.' });
     }
     res.writeHead(200, {
@@ -225,6 +239,10 @@ const server = http.createServer(async (req, res) => {
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no'
     });
+    // Keep Render's streaming connection alive while a free model is thinking.
+    streamHeartbeat = setInterval(() => {
+      if (!res.writableEnded && !res.destroyed) res.write(': keep-alive\n\n');
+    }, 15000);
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
     let pending = '';
@@ -232,6 +250,7 @@ const server = http.createServer(async (req, res) => {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      resetIdleTimeout();
       const chunk = decoder.decode(value, { stream: true });
       res.write(chunk);
       pending += chunk;
@@ -247,15 +266,19 @@ const server = http.createServer(async (req, res) => {
     const finalChunk = decoder.decode();
     if (finalChunk) res.write(finalChunk);
     clearTimeout(upstreamTimeout);
+    clearTimeout(upstreamTotalTimeout);
+    clearInterval(streamHeartbeat);
     if (!res.writableEnded) res.end();
     console.log(`Generacion completada en ${Math.round((Date.now() - startedAt) / 1000)} segundos. Modelo usado: ${usedModel || 'no informado'}.`);
   } catch (error) {
     clearTimeout(upstreamTimeout);
+    clearTimeout(upstreamTotalTimeout);
+    clearInterval(streamHeartbeat);
     const cause = error.cause;
     const diagnostic = `${error.name || ''} ${error.message || ''} ${cause?.name || ''} ${cause?.message || ''}`;
     const timedOut = /timeout|timed out|aborted due to timeout/i.test(diagnostic);
     console.error('Generation server error:', diagnostic, cause?.code ? `[${cause.code}]` : '');
-    const message = timedOut ? 'OpenRouter no completo la respuesta en 180 segundos. Intenta de nuevo mas tarde.' : 'No se pudo conectar con OpenRouter. Revisa la conexion e intenta de nuevo.';
+    const message = timedOut ? 'OpenRouter dejó de responder temporalmente. La aplicación intentará continuar desde el borrador recibido.' : 'No se pudo conectar con OpenRouter. La aplicación puede reintentar sin borrar el borrador.';
     if (res.headersSent && !res.writableEnded && !res.destroyed) {
       res.write(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`);
       res.end();

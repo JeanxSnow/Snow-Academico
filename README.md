@@ -23,6 +23,14 @@ El registro no exige verificación de correo. La recuperación de contraseña re
 
 Revisa, corrige y verifica los trabajos, las fuentes y los requisitos de la asignatura antes de enviarlos al docente o a la universidad.
 
+## Extensión y recuperación de generación
+
+El selector de páginas representa el contenido escrito y no cuenta la portada. Introducción, objetivos solicitados, desarrollo, conclusión y referencias se presupuestan por separado; en Word y PDF las secciones principales comienzan en una página nueva. La paginación real puede variar según la longitud del texto y el formato.
+
+Si se corta el flujo o el modelo alcanza su límite de salida, el navegador conserva el texto recibido, reintenta hasta tres veces y pide a OpenRouter continuar el mismo trabajo. Los reintentos rotan el orden de modelos configurados. Si se agotan, el borrador incompleto queda en pantalla y se puede reanudar manualmente. Esto reduce pérdidas, pero no garantiza disponibilidad ni que cada modelo mantenga perfecto el contexto.
+
+Con APA 7, el prompt pide citas autor-fecha que correspondan con referencias y el generador avisa si no detecta ninguna cita dentro del texto. Esa revisión automática es orientativa: comprueba manualmente la correspondencia y la veracidad de las fuentes.
+
 ## Ejecución local
 
 Requiere Node.js 20 o superior. Copia `.env.example` a `.env`, agrega tu clave de OpenRouter sin compartirla y ejecuta `npm start`; después abre `http://127.0.0.1:3000`. No subas `.env` a GitHub.

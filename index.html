@@ -142,6 +142,7 @@
     display: block; font-size: 12px; font-weight: 500;
     color: var(--text2); margin-bottom: 7px; letter-spacing: .3px;
   }
+  .form-group .hint { display:block; margin-top:7px; color:var(--text2); font-size:11px; line-height:1.5; }
   .form-input {
     width: 100%; padding: 11px 14px;
     background: var(--bg3); border: 1px solid var(--border);
@@ -706,6 +707,7 @@
                     <option>10 páginas</option>
                     <option>12 páginas</option>
                   </select>
+                  <small class="hint">Cuenta introducción, objetivos (si se piden), desarrollo, conclusión y referencias. La portada va aparte; las secciones principales empiezan en páginas nuevas.</small>
                 </div>
               </div>
               <div class="form-group" style="margin-bottom:0">
@@ -990,6 +992,9 @@ let generatedContent = '';
 let generationInProgress = false;
 let generationPaused = false;
 let generationController = null;
+let generationCancelled = false;
+let generationTimedOut = false;
+let lastGenerationPrompt = '';
 
 function historyStorageKey(identityValue = currentUser?.email || currentUser?.nombre || 'local') {
   const identity = String(identityValue).toLowerCase().trim();
@@ -1562,7 +1567,33 @@ function toggleGenerationPause() {
 
 function cancelGeneration() {
   if (!generationInProgress) return;
+  generationCancelled = true;
   generationController?.abort();
+}
+
+function crearPromptContinuacion(promptOriginal, borrador, motivo = '') {
+  const contexto = String(borrador || '').trim();
+  return `${promptOriginal}\n\nCONTINUACIÓN AUTOMÁTICA TRAS UN CORTE DEL PROVEEDOR:
+El texto que sigue ya fue generado y se conserva exactamente en la aplicación. No lo reescribas, resumas ni repitas. Continúa desde el último carácter recibido y entrega únicamente el texto que falta para completar el trabajo, conservando los marcadores, el estilo, el tema, el esquema, los objetivos y las reglas de citas. Si la última oración quedó cortada, complétala con naturalidad sin duplicarla. Completa las secciones finales que falten; no vuelvas al principio. ${motivo ? `Atención adicional: ${motivo}` : ''}
+
+BORRADOR YA RECIBIDO (contexto, no volver a emitir):
+${contexto}`;
+}
+
+function esErrorReintentableGeneracion(error, intentoExpirado = false) {
+  if (generationCancelled) return false;
+  if (intentoExpirado || error?.name === 'TypeError' || error?.name === 'AbortError') return true;
+  const texto = String(error?.message || error || '');
+  if (/\b(?:400|401|403|413)\b|inicia sesi[oó]n|cuenta est[aá] suspendida|falta configurar/i.test(texto)) return false;
+  return /\b(?:429|500|502|503|504)\b|OpenRouter|proveedor|transmisi[oó]n|conexi[oó]n|interrump|no confirm[oó]|no devolvi[oó] contenido|network|fetch failed|timeout|timed out/i.test(texto);
+}
+
+function esperarReintentoGeneracion(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted || generationCancelled) return reject(new DOMException('Generación cancelada', 'AbortError'));
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Generación cancelada', 'AbortError')); }, { once: true });
+  });
 }
 
 async function readGenerationStream(response) {
@@ -1596,10 +1627,11 @@ async function readGenerationStream(response) {
   }
   buffer += decoder.decode();
   if (buffer.trim()) addEvent(buffer);
+  if (!finishReason) throw new Error('La transmisión terminó sin confirmación del proveedor.');
   return finishReason;
 }
 
-function validarTrabajoGenerado(texto, estructuraRequerida = []) {
+function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferencias = false) {
   const contenido = String(texto || '').trim();
   const normalizado = contenido.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const marcadores = [...contenido.matchAll(/^\[TITULO_SECCION:\s*(.+?)\]\s*$/gim)]
@@ -1613,6 +1645,9 @@ function validarTrabajoGenerado(texto, estructuraRequerida = []) {
     } else if (!marcadores.includes(nombre)) {
       faltantes.push(seccion.toLowerCase());
     }
+  }
+  if (requiereReferencias && !marcadores.some(t => t === 'bibliografia' || t === 'referencias')) {
+    faltantes.push('referencias');
   }
   const seccionesFaltantes = [...new Set(faltantes)];
   if (seccionesFaltantes.length) {
@@ -1646,6 +1681,16 @@ function validarTrabajoGenerado(texto, estructuraRequerida = []) {
   }
 }
 
+function revisarCitasAPA(texto, requiereAPA) {
+  if (!requiereAPA) return '';
+  const contenido = String(texto || '');
+  const referenciaInicio = contenido.search(/^\[TITULO_SECCION:\s*(?:Referencias|Bibliograf[ií]a)\s*\]$/im);
+  if (referenciaInicio < 0) return 'Revisa que las referencias correspondan con citas dentro del texto.';
+  const cuerpo = contenido.slice(0, referenciaInicio);
+  const patronAutorAnio = /\([A-ZÁÉÍÓÚÜÑ][^()\n]{0,100}\b(?:19|20)\d{2}[a-z]?\)|[A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑáéíóúüñ.-]+(?:\s+(?:et al\.?|y\s+[\w.-]+|&\s+[\w.-]+))?\s+\((?:19|20)\d{2}[a-z]?\)/;
+  return patronAutorAnio.test(cuerpo) ? '' : 'No detecté citas de autor y año en el cuerpo. Revisa manualmente que las fuentes APA 7 estén citadas y coincidan con la bibliografía.';
+}
+
 function mostrarBorradorIncompleto(motivo) {
   const texto = generatedContent.trim();
   const preview = document.getElementById('previewWrap');
@@ -1658,13 +1703,20 @@ function mostrarBorradorIncompleto(motivo) {
   aviso.style.cssText = 'margin:0 0 18px;padding:12px 14px;border:1px solid #d8a740;border-radius:8px;color:var(--text);background:rgba(216,167,64,.10)';
   aviso.textContent = `Borrador incompleto: ${motivo} El texto se conserva solo para revisarlo; no se puede descargar como trabajo terminado.`;
   preview.appendChild(aviso);
+  const resume = document.createElement('button');
+  resume.type = 'button';
+  resume.className = 'btn btn-outline';
+  resume.style.cssText = 'display:block;margin-top:12px';
+  resume.textContent = '↻ Continuar desde el borrador guardado';
+  resume.addEventListener('click', () => void generarTrabajo(true));
+  aviso.appendChild(resume);
   preview.insertAdjacentHTML('beforeend', formatearContenido(texto));
   preview.classList.add('visible');
   document.getElementById('previewActions').classList.remove('visible');
   return true;
 }
 
-async function generarTrabajo() {
+async function generarTrabajo(continuarBorrador = false) {
   if (generationInProgress) return;
   const instrucciones = document.getElementById('instrucciones').value.trim();
   const materia = document.getElementById('materia').value.trim();
@@ -1672,6 +1724,9 @@ async function generarTrabajo() {
 
   if (!instrucciones && !tema) {
     showToast('Pega las indicaciones del maestro o escribe el tema', 'error'); return;
+  }
+  if (continuarBorrador && !generatedContent.trim()) {
+    showToast('No hay un borrador parcial que se pueda continuar.', 'error'); return;
   }
 
   // Analizar indicaciones automáticamente
@@ -1685,14 +1740,16 @@ async function generarTrabajo() {
 
   generationInProgress = true;
   generationPaused = false;
-  generatedContent = '';
+  generationCancelled = false;
+  generationTimedOut = false;
+  if (!continuarBorrador) generatedContent = '';
   generationController = new AbortController();
-  let generationTimedOut = false;
-  const clientTimeout = setTimeout(() => {
+  // Cada conexión tiene un límite propio; los reintentos comparten un límite total de 10 minutos.
+  const totalGenerationTimeout = setTimeout(() => {
     if (!generationInProgress) return;
     generationTimedOut = true;
-    generationController?.abort();
-  }, 190000);
+    generationController?.abort(new DOMException('Tiempo total agotado', 'TimeoutError'));
+  }, 600000);
   saveFieldHistory('materia', materia);
   saveFieldHistory('facilitador', document.getElementById('facilitador').value);
   const generateButton = document.querySelector('.generate-btn');
@@ -1715,14 +1772,15 @@ async function generarTrabajo() {
   generationStatus.textContent = 'Conectando con el modelo…';
   let lastPaintAt = 0;
   let lastStatusAt = 0;
+  let generationStatusOverride = '';
   const generationStartedAt = Date.now();
   const paintTimer = setInterval(() => {
     if (!generationPaused && Date.now() - lastStatusAt >= 1000) {
       const elapsed = Math.floor((Date.now() - generationStartedAt) / 1000);
       const timeLabel = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
-      generationStatus.textContent = generatedContent
+      generationStatus.textContent = generationStatusOverride || (generatedContent
         ? `Generando… ${timeLabel} · el texto aparece conforme llega.`
-        : `Esperando respuesta del proveedor… ${timeLabel}`;
+        : `Esperando respuesta del proveedor… ${timeLabel}`);
       lastStatusAt = Date.now();
     }
     if (!generationInProgress || generationPaused || !generatedContent || Date.now() - lastPaintAt < 250) return;
@@ -1762,8 +1820,13 @@ async function generarTrabajo() {
   const paginasObjetivo = cantidadPaginas.length > 1
     ? Math.round((cantidadPaginas[0] + cantidadPaginas[1]) / 2)
     : cantidadPaginas[0];
-  const palabrasObjetivo = Math.max(300, paginasObjetivo * 300);
-  const promptMaestro = `Redacta en español un trabajo académico completo sobre el tema indicado. Debe desarrollar ideas concretas y conectadas; queda prohibido sustituir el análisis con frases genéricas que solo repitan que el tema es importante.
+  // El selector cuenta páginas aproximadas de contenido escrito; la portada va aparte.
+  // Se reservan páginas independientes para introducción, conclusión, referencias y objetivos cuando se pidan.
+  const incluyeObjetivos = analisis.estructura.includes('Objetivos específicos');
+  const paginasSeccionesBreves = 3 + (incluyeObjetivos ? 1 : 0);
+  const paginasDesarrolloObjetivo = Math.max(1, paginasObjetivo - paginasSeccionesBreves);
+  const palabrasDesarrolloObjetivo = paginasDesarrolloObjetivo * 300;
+  const promptBase = `Redacta en español un trabajo académico completo sobre el tema indicado. Debe desarrollar ideas concretas y conectadas; queda prohibido sustituir el análisis con frases genéricas que solo repitan que el tema es importante.
 
 DATOS ACADÉMICOS:
 - Asignatura: ${materia || '[Asignatura]'}
@@ -1778,10 +1841,11 @@ FORMATO:
 - Tipo de trabajo: ${currentWorkType}
 - Fuente ${fuente}, tamaño ${tamCuerpo} pt; títulos ${tamTitulo} pt ${negrita}.
 - Citación: ${normas}.
-- Extensión solicitada: ${paginas}. Interpreta esta extensión como páginas aproximadas de contenido; la portada se añade aparte.
-- Escribe cerca de ${palabrasObjetivo} palabras para el cuerpo del trabajo (aproximadamente 300 palabras por página solicitada), además de portada y referencias. Si las indicaciones del docente definen una extensión distinta, sigue esas indicaciones.
+- Extensión solicitada: ${paginas}. El número del selector representa páginas aproximadas de contenido, sin contar la portada. Introducción, objetivos (si se piden), desarrollo, conclusión y referencias sí forman parte de ese conteo.
+- Reserva una página independiente para la Introducción, otra para la Conclusión, otra para Referencias y, solo si se solicitan, otra para Objetivos específicos. La portada se agrega aparte.
+- Para aproximar el total seleccionado, desarrolla el Desarrollo en unas ${paginasDesarrolloObjetivo} páginas (aproximadamente ${palabrasDesarrolloObjetivo} palabras sustantivas, a unas 300 por página). Mantén las secciones breves dentro de una página cada una. La extensión indicada por el docente prevalece.
 
-- Mantén la Introducción y la Conclusión concisas, con un máximo aproximado de 200 palabras cada una para que cada sección quepa en una sola página. Mantén las Referencias pertinentes y concisas para que ocupen una sola página; el Desarrollo puede extenderse según la cantidad solicitada.
+- Mantén la Introducción y la Conclusión concisas, de unas 120–180 palabras cada una. Limita los objetivos a 2–4 enunciados concretos. Mantén las Referencias pertinentes y concisas para que ocupen una sola página. No juntes dos secciones principales en la misma página.
 
 ESTRUCTURA DETECTADA EN LAS INDICACIONES: ${estructuraTexto}.
 - Incluye cada apartado que el docente pida expresamente; la portada se arma por separado con los datos del perfil. No confundas una mención temática como “objetivos organizacionales” con el requisito de una sección formal de objetivos específicos.
@@ -1795,11 +1859,12 @@ CRITERIOS DE CONTENIDO:
 3b. Cuando ayude al análisis, adapta los ejemplos al campo de estudio. Para carreras de turismo, prioriza situaciones verosímiles de hoteles, restaurantes, agencias de viajes o servicios turísticos. No inventes vivencias personales del estudiante.
 4. En temas científicos, distingue hechos establecidos, hipótesis y aplicaciones; explica la evidencia con precisión y no inventes cifras, experimentos, citas textuales ni resultados.
 5. La conclusión responde al propósito inicial y sintetiza lo demostrado. No añadas afirmaciones nuevas ni frases vacías.
-6. Incluye referencias únicamente cuando sean identificables y pertinentes. No inventes autores, títulos, editoriales, DOI, fechas ni enlaces. Si no puedes verificar un dato bibliográfico, no lo presentes como comprobado.
+6. Incluye referencias únicamente cuando sean identificables y pertinentes. No inventes autores, títulos, editoriales, DOI, fechas ni enlaces. No digas que verificaste una fuente si no tuviste acceso a ella; si no puedes identificar con seguridad una fuente, no la presentes como comprobada.
 7. Sigue las instrucciones específicas sobre preguntas, objetivos, método, ejemplos y estructura. No agregues secciones que contradigan lo pedido.
 8. No menciones que eres una IA y no incluyas notas al usuario dentro del trabajo.
 9. No presentes porcentajes, resultados, estudios, empresas ni casos como reales si no puedes vincularlos con una fuente identificable y pertinente. Si el ejemplo es inventado para explicar una idea, indícalo expresamente como hipotético y no lo atribuyas a un estudio o autor.
-10. En trabajos con normas APA 7.ª, ordena la lista de referencias alfabéticamente por el apellido del primer autor o por el nombre de la institución. Verifica que cada cita del texto tenga su referencia correspondiente y que cada referencia incluida esté citada en el texto; aplica el formato APA 7.ª de manera consistente.
+10. En trabajos con normas APA 7.ª, ordena la lista de referencias alfabéticamente por el apellido del primer autor o por el nombre de la institución. Usa citas de autor y año en el cuerpo del texto para respaldar afirmaciones tomadas de fuentes. Cada cita debe tener una entrada correspondiente y cada entrada debe citarse en el texto. Revisa especialmente años, autores y títulos; no sustituyas las citas por una bibliografía aislada.
+11. Cuando se propongan ejemplos inventados, identifícalos claramente como hipotéticos y no atribuyas sus resultados a investigaciones reales. Distingue esos ejemplos de la evidencia documental.
 
 Usa exactamente estos marcadores, uno por sección o párrafo:
 [TITULO_SECCION: Introducción]
@@ -1815,49 +1880,124 @@ Usa exactamente estos marcadores, uno por sección o párrafo:
 [REFERENCIA] referencia
 
 Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la requieren; de lo contrario, comienza directamente con [TITULO_SECCION: Introducción]. Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
+  if (!continuarBorrador) lastGenerationPrompt = promptBase;
+  const promptMaestro = continuarBorrador
+    ? crearPromptContinuacion(lastGenerationPrompt || promptBase, generatedContent, 'Retoma el mismo trabajo y completa solo lo que falta.')
+    : promptBase;
 
   let advertenciaExtensionCorta = false;
+  let advertenciaCitas = '';
   let palabrasGeneradas = 0;
   try {
     if (!firebaseAuth.currentUser) throw new Error('Inicia sesión para generar un trabajo.');
-    const idToken = await firebaseAuth.currentUser.getIdToken();
-    const res = await fetch('/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
-      signal: generationController.signal,
-      body: JSON.stringify({ prompt: promptMaestro, maxTokens: Math.min(16000, Math.max(4000, paginasObjetivo * 2400)), stream: true })
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || `Servicio de generación respondió ${res.status}`);
+    const maxReanudacionesAutomaticas = 3;
+    let reanudaciones = 0;
+    let completado = false;
+    let reparacionEstructural = '';
+
+    while (!completado) {
+      if (generationCancelled) throw new DOMException('Generación cancelada por el usuario.', 'AbortError');
+      const controller = new AbortController();
+      generationController = controller;
+      let intentoExpirado = false;
+      const timeoutIntento = setTimeout(() => {
+        intentoExpirado = true;
+        controller.abort(new DOMException('El proveedor estuvo demasiado tiempo sin completar esta parte.', 'TimeoutError'));
+      }, 495000);
+
+      try {
+        const recuperando = reanudaciones > 0;
+        generationStatusOverride = recuperando
+          ? `Recuperando la respuesta… reanudación ${reanudaciones} de ${maxReanudacionesAutomaticas}; el borrador se conserva.`
+          : 'Conectando con el proveedor…';
+        generationStatus.textContent = generationStatusOverride;
+        const idToken = await firebaseAuth.currentUser.getIdToken();
+        const solicitud = reparacionEstructural
+          ? crearPromptContinuacion(lastGenerationPrompt || promptBase, generatedContent, `Completa únicamente los apartados estructurales faltantes: ${reparacionEstructural}.`)
+          : (recuperando || continuarBorrador
+            ? crearPromptContinuacion(lastGenerationPrompt || promptBase, generatedContent)
+            : promptMaestro);
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
+          signal: controller.signal,
+          body: JSON.stringify({ prompt: solicitud, fallbackAttempt: reanudaciones, maxTokens: recuperando ? 8000 : Math.min(16000, Math.max(4000, paginasObjetivo * 2400)), stream: true })
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const requestError = new Error(data.error || `Servicio de generación respondió ${res.status}`);
+          requestError.status = res.status;
+          throw requestError;
+        }
+        generationStatusOverride = '';
+        generationStatus.textContent = recuperando
+          ? 'El proveedor retomó el trabajo; el borrador anterior permanece intacto.'
+          : 'Generando… el texto aparecerá aquí conforme llegue.';
+        const finishReason = await readGenerationStream(res);
+        if (!generatedContent.trim()) throw new Error('El servicio no devolvió contenido.');
+        if (finishReason === 'length') {
+          if (reanudaciones >= maxReanudacionesAutomaticas) {
+            throw new Error('El proveedor alcanzó varias veces su límite de salida. El borrador quedó guardado en pantalla; puedes continuar desde ahí.');
+          }
+          reparacionEstructural = '';
+          reanudaciones += 1;
+          generationStatusOverride = 'El proveedor llegó al límite de salida. Continuando desde el último fragmento…';
+          generationStatus.textContent = generationStatusOverride;
+          clearTimeout(timeoutIntento);
+          continue;
+        }
+        if (finishReason !== 'stop') throw new Error('El proveedor no confirmó que la respuesta terminara correctamente.');
+
+        try {
+          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas));
+          advertenciaCitas = revisarCitasAPA(generatedContent, /apa/i.test(normas));
+          completado = true;
+        } catch (validationError) {
+          const missingMatch = String(validationError.message || '').match(/faltan\s+(.+?)\.\s+No se descarg[oó]/i);
+          if (!missingMatch || reanudaciones >= maxReanudacionesAutomaticas) throw validationError;
+          reparacionEstructural = missingMatch[1];
+          reanudaciones += 1;
+          generationStatusOverride = `Falta una sección (${reparacionEstructural}); el proveedor la completará sin rehacer lo anterior…`;
+          generationStatus.textContent = generationStatusOverride;
+          clearTimeout(timeoutIntento);
+          continue;
+        }
+      } catch (attemptError) {
+        clearTimeout(timeoutIntento);
+        if (generationCancelled) throw new DOMException('Generación cancelada por el usuario.', 'AbortError');
+        if (generationTimedOut) throw new DOMException('Se alcanzó el límite total de tiempo.', 'TimeoutError');
+        if (reanudaciones >= maxReanudacionesAutomaticas || !esErrorReintentableGeneracion(attemptError, intentoExpirado)) throw attemptError;
+        reanudaciones += 1;
+        reparacionEstructural = '';
+        generationStatusOverride = generatedContent.trim()
+          ? `Se interrumpió la conexión. Conservo ${generatedContent.trim().split(/\s+/).length} palabras y reanudo en unos segundos (${reanudaciones}/${maxReanudacionesAutomaticas})…`
+          : `El proveedor no respondió. Reintentando automáticamente (${reanudaciones}/${maxReanudacionesAutomaticas})…`;
+        generationStatus.textContent = generationStatusOverride;
+        generationController = new AbortController();
+        await esperarReintentoGeneracion(Math.min(8000, 1000 * (2 ** (reanudaciones - 1))), generationController.signal);
+      } finally {
+        clearTimeout(timeoutIntento);
+      }
     }
-    generationStatus.textContent = 'Generando… el texto aparecerá aquí conforme llegue.';
-    const finishReason = await readGenerationStream(res);
-    if (!generatedContent.trim()) throw new Error('El servicio no devolvio contenido.');
-    if (finishReason !== 'stop') {
-      throw new Error(finishReason === 'length'
-        ? 'El proveedor cortó la respuesta al alcanzar su límite. No se descargó el borrador; intenta con menos páginas.'
-        : 'El proveedor no confirmó que la respuesta terminara correctamente. No se descargó el borrador; vuelve a intentar.');
-    }
-    validarTrabajoGenerado(generatedContent, analisis.estructura);
+
     palabrasGeneradas = generatedContent.trim().split(/\s+/).length;
     if (palabrasGeneradas < paginasObjetivo * 220) {
       advertenciaExtensionCorta = true;
       console.warn(`La respuesta terminó correctamente, pero quedó por debajo de la extensión aproximada: ${palabrasGeneradas} palabras para ${paginasObjetivo} páginas.`);
     }
   } catch(e) {
-    clearTimeout(clientTimeout);
-    if (e.name === 'AbortError') {
-      if (generationTimedOut) {
+    clearTimeout(totalGenerationTimeout);
+    if (e.name === 'AbortError' || e.name === 'TimeoutError') {
+      if (generationTimedOut || e.name === 'TimeoutError') {
         logAppError('generation-timeout', e);
         clearInterval(paintTimer);
         generationInProgress = false; generationPaused = false; generationController = null;
-        const borradorPreservado = mostrarBorradorIncompleto('el proveedor tardo mas de 3 minutos y se detuvo la solicitud.');
+        const borradorPreservado = mostrarBorradorIncompleto('se agotó el tiempo máximo de recuperación automática.');
         if (!borradorPreservado) generatedContent = '';
         document.getElementById('spinnerWrap').classList.remove('visible');
         document.getElementById('generationControls').classList.remove('visible');
         if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
-        showToast(borradorPreservado ? 'La solicitud se detuvo y el borrador parcial se conserva para revisarlo.' : 'El proveedor tardo mas de 3 minutos. Intenta otra vez mas tarde.', 'error');
+        showToast(borradorPreservado ? 'Se agotaron los reintentos automáticos; el borrador se conserva y puedes continuarlo.' : 'No se recibió suficiente texto para reanudar. Inténtalo de nuevo más tarde.', 'error');
         return;
       }
       console.info('Generación cancelada por el usuario.');
@@ -1866,8 +2006,8 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
       document.getElementById('spinnerWrap').classList.remove('visible');
       document.getElementById('generationControls').classList.remove('visible');
       if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
-      const borradorPreservado = mostrarBorradorIncompleto('la generacion fue cancelada.');
-      showToast(borradorPreservado ? 'Generacion cancelada. El borrador parcial se conserva para revisarlo.' : 'Generacion cancelada.', 'info');
+      const borradorPreservado = mostrarBorradorIncompleto('la generación fue cancelada por el usuario.');
+      showToast(borradorPreservado ? 'Generación cancelada. El borrador se conserva y puedes continuar desde ahí.' : 'Generación cancelada.', 'info');
       return;
     }
     console.error('Error al generar el trabajo:', e);
@@ -1887,7 +2027,7 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
     return;
   }
 
-  clearTimeout(clientTimeout);
+  clearTimeout(totalGenerationTimeout);
   clearInterval(paintTimer);
   generationInProgress = false; generationPaused = false; generationController = null;
   if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
@@ -1902,10 +2042,13 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
   let guardadoEnCuenta = true;
   try { await guardarTrabajoEnFirestore(); }
   catch (error) { guardadoEnCuenta = false; logAppError('work-save', error); console.warn('No se pudo sincronizar el trabajo:', error); }
-  const mensajeGeneracion = advertenciaExtensionCorta
-    ? `Trabajo generado. Quedó más corto de lo aproximado (${palabrasGeneradas} palabras); revísalo antes de descargar.`
+  const avisosGeneracion = [];
+  if (advertenciaExtensionCorta) avisosGeneracion.push(`quedó corto de lo aproximado (${palabrasGeneradas} palabras)`);
+  if (advertenciaCitas) avisosGeneracion.push(advertenciaCitas);
+  const mensajeGeneracion = avisosGeneracion.length
+    ? `Trabajo generado. ${avisosGeneracion.join(' ')} Revisa el contenido antes de descargar.`
     : 'Trabajo generado ✓ Revísalo antes de descargar';
-  showToast(guardadoEnCuenta ? mensajeGeneracion : `${mensajeGeneracion} No se guardó en tu cuenta; descárgalo para conservarlo.`, guardadoEnCuenta && !advertenciaExtensionCorta ? 'success' : 'info');
+  showToast(guardadoEnCuenta ? mensajeGeneracion : `${mensajeGeneracion} No se guardó en tu cuenta; descárgalo para conservarlo.`, guardadoEnCuenta && !advertenciaExtensionCorta && !advertenciaCitas ? 'success' : 'info');
 }
 
 async function guardarTrabajoEnFirestore() {
@@ -2055,7 +2198,7 @@ function descargarPDF() {
   printWindow.document.open();
   printWindow.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${title.replace(/[<>]/g, '')}</title><style>
     @page{size:letter;margin:2.54cm}body{font-family:Arial,sans-serif;font-size:12pt;line-height:1.5;color:#000;background:#fff;margin:0}
-    h1,h2,h3{color:#000!important;text-align:left;break-after:avoid}p{color:#000!important;text-align:justify;orphans:3;widows:3}
+    h1,h2,h3{color:#000!important;text-align:left;break-after:avoid}h2:not(:first-of-type){break-before:page;page-break-before:always}p{color:#000!important;text-align:justify;orphans:3;widows:3}
     ul{color:#000!important}div{color:#000!important}img{max-width:100%;height:auto;object-fit:contain}
   </style></head><body>${htmlContent}</body></html>`);
   printWindow.document.close();
