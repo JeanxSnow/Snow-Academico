@@ -490,7 +490,7 @@
           <label class="form-label">Universidad</label>
           <select class="form-input" id="regUni">
             <option value="">Selecciona tu universidad</option>
-            <option>UASD</option><option>UAPA</option><option>UFE</option>
+            <option>UAPA</option><option>UASD</option><option>UFE</option>
             <option>PUCMM</option><option>INTEC</option><option>UNIBE</option>
             <option>UTESA</option><option>O&M</option><option>Otra</option>
           </select>
@@ -829,7 +829,7 @@
             <div class="form-group">
               <label class="form-label">Universidad</label>
               <select class="form-input" id="perfUni">
-                <option>UASD</option><option>UAPA</option><option>UFE</option>
+                <option>UAPA</option><option>UASD</option><option>UFE</option>
                 <option>PUCMM</option><option>INTEC</option><option>UNIBE</option>
                 <option>UTESA</option><option>O&M</option><option>Otra</option>
               </select>
@@ -957,7 +957,7 @@ function doLogin() {
   if (!email) { showToast('Ingresa tu correo', 'error'); return; }
   currentUser = {
     nombre: 'Usuario Demo', matricula: '2024-0001',
-    universidad: 'UASD', carrera: 'Administración',
+    universidad: '', carrera: 'Administración',
     email, isAdmin: email.includes('admin')
   };
   enterApp();
@@ -1404,14 +1404,39 @@ async function descargarWord() {
     bodyXml += `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
 
     // ── Parsear contenido generado ────────────────────
+    // Secciones que deben empezar en página nueva
+    const NUEVA_PAGINA = ['introducción','introduccion','conclusión','conclusion',
+                          'referencias','bibliografía','bibliografia',
+                          'referencias bibliográficas','referencias bibliograficas'];
+
     const lines = generatedContent.split('\n');
+    let enPortada = false; // flag para saltar todo el bloque [PORTADA]
     for (const line of lines) {
       const t = line.trim();
-      if (!t) continue; // saltar líneas vacías — el espaciado lo maneja CSS
-      if (t.startsWith('[PORTADA]')) continue;
+
+      // Entrar/salir del bloque PORTADA
+      if (t.startsWith('[PORTADA]')) { enPortada = true; continue; }
+      if (enPortada) {
+        // El bloque portada termina cuando aparece la primera sección real
+        if (t.startsWith('[TITULO_SECCION') || t.startsWith('[PARRAFO') || t.startsWith('[SUBTITULO')) {
+          enPortada = false;
+        } else {
+          continue; // saltar líneas dentro del bloque portada
+        }
+      }
+
+      if (!t) continue; // saltar líneas vacías
 
       const mTit = t.match(/^\[TITULO_SECCION:\s*(.+?)\]$/);
-      if (mTit) { bodyXml += headingXml(mTit[1], 1); continue; }
+      if (mTit) {
+        const nombre_sec = mTit[1].trim().toLowerCase();
+        // Salto de página antes de Introducción, Conclusión y Bibliografía
+        if (NUEVA_PAGINA.some(n => nombre_sec.startsWith(n))) {
+          bodyXml += `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
+        }
+        bodyXml += headingXml(mTit[1], 1);
+        continue;
+      }
 
       const mSub = t.match(/^\[SUBTITULO:\s*(.+?)\]$/);
       if (mSub) { bodyXml += headingXml(mSub[1], 2); continue; }
@@ -1629,18 +1654,19 @@ function crc32(data) {
 
 // ── PROFILE SAVE ───────────────────────────────────────
 function guardarPerfil() {
-  if (!currentUser) return;
-  currentUser.nombre = document.getElementById('perfNombre').value;
-  currentUser.matricula = document.getElementById('perfMatricula').value;
+  currentUser.nombre      = document.getElementById('perfNombre').value.trim();
+  currentUser.matricula   = document.getElementById('perfMatricula').value.trim();
   currentUser.universidad = document.getElementById('perfUni').value;
-  currentUser.carrera = document.getElementById('perfCarrera').value;
+  currentUser.carrera     = document.getElementById('perfCarrera').value.trim();
+  // Refresh sidebar
   document.getElementById('sidebarName').textContent = currentUser.nombre;
-  document.getElementById('cfgNombre').textContent = currentUser.nombre || '—';
-  document.getElementById('cfgMatricula').textContent = currentUser.matricula || '—';
-  document.getElementById('cfgUni').textContent = currentUser.universidad || '—';
-  document.getElementById('cfgCarrera').textContent = currentUser.carrera || '—';
+  document.getElementById('cfgNombre').textContent   = currentUser.nombre    || '—';
+  document.getElementById('cfgMatricula').textContent= currentUser.matricula || '—';
+  document.getElementById('cfgUni').textContent      = currentUser.universidad || '—';
+  document.getElementById('cfgCarrera').textContent  = currentUser.carrera   || '—';
   showToast('Perfil guardado ✓', 'success');
 }
+
 
 // ── COMMENTS ───────────────────────────────────────────
 function enviarComentario() {
