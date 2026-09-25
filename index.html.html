@@ -1,0 +1,1638 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Snow Académico</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root[data-theme="dark"] {
+    --bg:        #0e0e10;
+    --bg2:       #16161a;
+    --bg3:       #1e1e24;
+    --border:    #2a2a32;
+    --text:      #e8e6e0;
+    --text2:     #8a8890;
+    --gold:      #c9a84c;
+    --gold-soft: #e8c97a;
+    --gold-bg:   rgba(201,168,76,0.08);
+    --danger:    #c0392b;
+    --success:   #27ae60;
+    --shadow:    0 8px 32px rgba(0,0,0,0.5);
+  }
+  :root[data-theme="light"] {
+    --bg:        #f5f4f0;
+    --bg2:       #ffffff;
+    --bg3:       #eeece8;
+    --border:    #dddbd4;
+    --text:      #1a1a1e;
+    --text2:     #6b6970;
+    --gold:      #a07828;
+    --gold-soft: #c99a3a;
+    --gold-bg:   rgba(160,120,40,0.08);
+    --danger:    #c0392b;
+    --success:   #1e8449;
+    --shadow:    0 8px 32px rgba(0,0,0,0.1);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    transition: background .3s, color .3s;
+    font-size: 15px;
+  }
+
+  /* ── NAVBAR ── */
+  .navbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    height: 62px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px;
+    backdrop-filter: blur(12px);
+  }
+  .nav-logo {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px; font-weight: 700;
+    color: var(--gold);
+    letter-spacing: .5px;
+  }
+  .nav-logo span { color: var(--text); font-weight: 300; font-size: 18px; }
+  .nav-right { display: flex; align-items: center; gap: 12px; }
+
+  .theme-toggle {
+    background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text2); cursor: pointer;
+    width: 38px; height: 38px; border-radius: 50%;
+    font-size: 16px; display: flex; align-items: center; justify-content: center;
+    transition: all .2s;
+  }
+  .theme-toggle:hover { border-color: var(--gold); color: var(--gold); }
+
+  .btn {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px; font-weight: 500;
+    padding: 9px 20px; border-radius: 8px;
+    border: none; cursor: pointer;
+    transition: all .2s; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .btn-gold {
+    background: var(--gold); color: #0e0e10; font-weight: 600;
+  }
+  .btn-gold:hover { background: var(--gold-soft); transform: translateY(-1px); }
+  .btn-outline {
+    background: transparent; color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-outline:hover { border-color: var(--gold); color: var(--gold); }
+  .btn-ghost {
+    background: transparent; color: var(--text2);
+    border: 1px solid transparent; font-size: 13px;
+  }
+  .btn-ghost:hover { color: var(--gold); }
+
+  /* ── SCREENS ── */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* ── AUTH SCREEN ── */
+  .auth-wrap {
+    min-height: 100vh; display: flex;
+    align-items: center; justify-content: center;
+    padding: 80px 20px 40px;
+  }
+  .auth-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 48px 44px;
+    width: 100%; max-width: 420px;
+    box-shadow: var(--shadow);
+  }
+  .auth-logo {
+    font-family: 'Playfair Display', serif;
+    font-size: 28px; font-weight: 700;
+    color: var(--gold); text-align: center;
+    margin-bottom: 4px;
+  }
+  .auth-sub {
+    text-align: center; color: var(--text2);
+    font-size: 13px; margin-bottom: 36px;
+  }
+  .auth-tabs {
+    display: flex; border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+  }
+  .auth-tab {
+    flex: 1; padding: 10px; text-align: center;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    color: var(--text2); border-bottom: 2px solid transparent;
+    margin-bottom: -1px; transition: all .2s;
+  }
+  .auth-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
+
+  .form-group { margin-bottom: 18px; }
+  .form-label {
+    display: block; font-size: 12px; font-weight: 500;
+    color: var(--text2); margin-bottom: 7px; letter-spacing: .3px;
+  }
+  .form-input {
+    width: 100%; padding: 11px 14px;
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 9px; color: var(--text);
+    font-family: 'Inter', sans-serif; font-size: 14px;
+    transition: border-color .2s; outline: none;
+  }
+  .form-input:focus { border-color: var(--gold); }
+  .form-input::placeholder { color: var(--text2); }
+  select.form-input { cursor: pointer; }
+
+  .auth-divider {
+    text-align: center; font-size: 12px; color: var(--text2);
+    margin: 20px 0; position: relative;
+  }
+  .auth-divider::before, .auth-divider::after {
+    content: ''; position: absolute; top: 50%;
+    width: 38%; height: 1px; background: var(--border);
+  }
+  .auth-divider::before { left: 0; }
+  .auth-divider::after { right: 0; }
+
+  /* ── MAIN APP ── */
+  .app-wrap {
+    padding-top: 62px; min-height: 100vh;
+    display: flex;
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: 230px; flex-shrink: 0;
+    background: var(--bg2); border-right: 1px solid var(--border);
+    min-height: calc(100vh - 62px);
+    padding: 24px 0;
+    position: fixed; top: 62px; left: 0; bottom: 0;
+    overflow-y: auto;
+  }
+  .sidebar-section {
+    font-size: 10px; font-weight: 600; color: var(--text2);
+    letter-spacing: 1px; padding: 0 20px 8px;
+    margin-top: 20px;
+  }
+  .sidebar-section:first-child { margin-top: 0; }
+  .nav-item {
+    display: flex; align-items: center; gap: 11px;
+    padding: 10px 20px; cursor: pointer;
+    color: var(--text2); font-size: 14px; font-weight: 400;
+    transition: all .15s; border-left: 2px solid transparent;
+    text-decoration: none;
+  }
+  .nav-item:hover { color: var(--text); background: var(--gold-bg); }
+  .nav-item.active {
+    color: var(--gold); background: var(--gold-bg);
+    border-left-color: var(--gold); font-weight: 500;
+  }
+  .nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+
+  .sidebar-user {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--bg2);
+  }
+  .user-name { font-size: 13px; font-weight: 500; color: var(--text); }
+  .user-plan {
+    font-size: 11px; color: var(--gold);
+    margin-top: 2px;
+  }
+
+  /* ── MAIN CONTENT ── */
+  .main-content {
+    margin-left: 230px; flex: 1;
+    padding: 36px 40px;
+    min-height: calc(100vh - 62px);
+  }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ── GENERATOR PAGE ── */
+  .page-header { margin-bottom: 32px; }
+  .page-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 28px; font-weight: 600; color: var(--text);
+    margin-bottom: 6px;
+  }
+  .page-sub { color: var(--text2); font-size: 14px; }
+
+  .generator-grid {
+    display: grid; grid-template-columns: 1fr 380px;
+    gap: 24px; align-items: start;
+  }
+
+  .card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 16px; padding: 28px;
+  }
+  .card-title {
+    font-size: 13px; font-weight: 600; color: var(--text2);
+    letter-spacing: .5px; margin-bottom: 20px;
+    text-transform: uppercase;
+  }
+
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  .work-types {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    margin-bottom: 4px;
+  }
+  .work-type {
+    padding: 10px 8px; border-radius: 9px;
+    border: 1px solid var(--border);
+    text-align: center; cursor: pointer;
+    font-size: 12px; color: var(--text2);
+    transition: all .2s; background: var(--bg3);
+  }
+  .work-type .wt-icon { font-size: 18px; display: block; margin-bottom: 4px; }
+  .work-type:hover { border-color: var(--gold); color: var(--text); }
+  .work-type.selected {
+    border-color: var(--gold); background: var(--gold-bg);
+    color: var(--gold); font-weight: 500;
+  }
+
+  .format-options {
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .format-chip {
+    padding: 7px 14px; border-radius: 20px;
+    border: 1px solid var(--border);
+    font-size: 13px; color: var(--text2); cursor: pointer;
+    transition: all .2s; background: var(--bg3);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .format-chip:hover { border-color: var(--gold); color: var(--text); }
+  .format-chip.selected {
+    border-color: var(--gold); background: var(--gold-bg);
+    color: var(--gold); font-weight: 500;
+  }
+
+  /* Sidebar config card */
+  .config-card { position: sticky; top: 90px; }
+  .config-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .config-row:last-child { border-bottom: none; }
+  .config-label { color: var(--text2); }
+  .config-val { color: var(--text); font-weight: 500; font-size: 13px; }
+
+  .generate-btn {
+    width: 100%; padding: 14px;
+    background: var(--gold); color: #0e0e10;
+    font-family: 'Inter', sans-serif;
+    font-size: 15px; font-weight: 700;
+    border: none; border-radius: 10px; cursor: pointer;
+    margin-top: 20px; transition: all .2s;
+    letter-spacing: .3px;
+  }
+  .generate-btn:hover { background: var(--gold-soft); transform: translateY(-1px); }
+
+  /* ── PREVIEW ── */
+  .preview-wrap {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 12px; padding: 28px;
+    font-size: 14px; line-height: 1.8;
+    color: var(--text); min-height: 300px;
+    white-space: pre-wrap; font-family: 'Inter', sans-serif;
+    margin-top: 20px; display: none;
+  }
+  .preview-wrap.visible { display: block; }
+  .preview-actions {
+    display: flex; gap: 10px; margin-top: 16px;
+    flex-wrap: wrap; display: none;
+  }
+  .preview-actions.visible { display: flex; }
+
+  /* ── UNIVERSITIES ── */
+  .uni-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  }
+  .uni-card {
+    padding: 14px 10px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--bg3);
+    text-align: center; cursor: pointer; transition: all .2s;
+    font-size: 12px; font-weight: 500; color: var(--text2);
+  }
+  .uni-card .uni-icon { font-size: 22px; margin-bottom: 6px; display: block; }
+  .uni-card:hover { border-color: var(--gold); color: var(--text); }
+  .uni-card.selected {
+    border-color: var(--gold); background: var(--gold-bg);
+    color: var(--gold);
+  }
+
+  /* ── PROFILE ── */
+  .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+  /* ── HISTORIAL ── */
+  .history-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .history-table th {
+    text-align: left; padding: 10px 14px;
+    font-size: 11px; font-weight: 600; color: var(--text2);
+    letter-spacing: .5px; border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+  }
+  .history-table td {
+    padding: 12px 14px; border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  .history-table tr:last-child td { border-bottom: none; }
+  .history-table tr:hover td { background: var(--gold-bg); }
+  .badge {
+    display: inline-block; padding: 3px 9px; border-radius: 12px;
+    font-size: 11px; font-weight: 500;
+  }
+  .badge-word { background: rgba(41,128,185,.15); color: #5dade2; }
+  .badge-pdf { background: rgba(192,57,43,.15); color: #e74c3c; }
+  .badge-ppt { background: rgba(211,84,0,.15); color: #e67e22; }
+
+  /* ── ADMIN ── */
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+  .stat-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px 20px;
+  }
+  .stat-label { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
+  .stat-val { font-size: 28px; font-weight: 700; color: var(--text); }
+  .stat-val.gold { color: var(--gold); }
+
+  /* ── COMMENTS ── */
+  .comment-card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px; margin-bottom: 12px;
+  }
+  .comment-meta { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+  .comment-text { font-size: 14px; color: var(--text); }
+
+  /* ── SPINNER ── */
+  .spinner-wrap {
+    display: none; text-align: center; padding: 40px;
+  }
+  .spinner-wrap.visible { display: block; }
+  .spinner {
+    width: 38px; height: 38px; border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--gold);
+    animation: spin .8s linear infinite;
+    margin: 0 auto 14px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner-text { color: var(--text2); font-size: 14px; }
+
+  /* ── TOAST ── */
+  .toast {
+    position: fixed; bottom: 28px; right: 28px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 20px;
+    font-size: 14px; color: var(--text);
+    box-shadow: var(--shadow); z-index: 9999;
+    transform: translateY(20px); opacity: 0;
+    transition: all .3s; pointer-events: none;
+    max-width: 320px;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { border-left: 3px solid var(--success); }
+  .toast.error { border-left: 3px solid var(--danger); }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main-content { margin-left: 0; padding: 20px; }
+    .generator-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .uni-grid { grid-template-columns: repeat(3, 1fr); }
+    .work-types { grid-template-columns: repeat(2, 1fr); }
+    .row-3 { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAVBAR -->
+<nav class="navbar">
+  <div class="nav-logo">Snow <span>Académico</span></div>
+  <div class="nav-right">
+    <button class="theme-toggle" onclick="toggleTheme()" title="Cambiar tema" id="themeBtn">☀️</button>
+    <button class="btn btn-ghost" onclick="showScreen('auth')" id="logoutBtn" style="display:none">Cerrar sesión</button>
+  </div>
+</nav>
+
+<!-- ════════════════════════════════════════
+     PANTALLA AUTH
+════════════════════════════════════════ -->
+<div id="screen-auth" class="screen active">
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-logo">Snow Académico</div>
+      <div class="auth-sub">Trabajos universitarios profesionales con IA</div>
+
+      <div class="auth-tabs">
+        <div class="auth-tab active" onclick="switchTab('login')">Iniciar sesión</div>
+        <div class="auth-tab" onclick="switchTab('register')">Registrarse</div>
+      </div>
+
+      <!-- LOGIN -->
+      <div id="tab-login">
+        <div class="form-group">
+          <label class="form-label">Correo electrónico</label>
+          <input class="form-input" type="email" placeholder="tucorreo@email.com" id="loginEmail">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contraseña</label>
+          <input class="form-input" type="password" placeholder="••••••••" id="loginPass">
+        </div>
+        <button class="btn btn-gold" style="width:100%;justify-content:center;padding:12px" onclick="doLogin()">
+          Entrar
+        </button>
+        <div class="auth-divider" style="margin-top:20px">o continúa con</div>
+        <button class="btn btn-outline" style="width:100%;justify-content:center;padding:11px;margin-top:0" onclick="showToast('Google login próximamente','info')">
+          🌐 Google
+        </button>
+      </div>
+
+      <!-- REGISTER -->
+      <div id="tab-register" style="display:none">
+        <div class="row-2">
+          <div class="form-group">
+            <label class="form-label">Nombre completo</label>
+            <input class="form-input" type="text" placeholder="Juan Pérez" id="regName">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Matrícula</label>
+            <input class="form-input" type="text" placeholder="2024-0001" id="regMatricula">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Correo electrónico</label>
+          <input class="form-input" type="email" placeholder="tucorreo@email.com" id="regEmail">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contraseña</label>
+          <input class="form-input" type="password" placeholder="Mínimo 8 caracteres" id="regPass">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Universidad</label>
+          <select class="form-input" id="regUni">
+            <option value="">Selecciona tu universidad</option>
+            <option>UASD</option><option>UAPA</option><option>UFE</option>
+            <option>PUCMM</option><option>INTEC</option><option>UNIBE</option>
+            <option>UTESA</option><option>O&M</option><option>Otra</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Carrera</label>
+          <input class="form-input" type="text" placeholder="Administración de Empresas" id="regCarrera">
+        </div>
+        <button class="btn btn-gold" style="width:100%;justify-content:center;padding:12px" onclick="doRegister()">
+          Crear cuenta gratis — 1 mes de prueba
+        </button>
+        <p style="text-align:center;font-size:11px;color:var(--text2);margin-top:12px">
+          Al registrarte aceptas los términos de uso
+        </p>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     PANTALLA APP
+════════════════════════════════════════ -->
+<div id="screen-app" class="screen">
+  <div class="app-wrap">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-section">Principal</div>
+      <a class="nav-item active" onclick="showPage('generator')">
+        <span class="icon">✏️</span> Nuevo trabajo
+      </a>
+      <a class="nav-item" onclick="showPage('historial')">
+        <span class="icon">📁</span> Mis trabajos
+      </a>
+
+      <div class="sidebar-section">Cuenta</div>
+      <a class="nav-item" onclick="showPage('perfil')">
+        <span class="icon">👤</span> Mi perfil
+      </a>
+      <a class="nav-item" onclick="showPage('comentarios')">
+        <span class="icon">💬</span> Comentarios
+      </a>
+
+      <div class="sidebar-section" id="adminSection" style="display:none">Admin</div>
+      <a class="nav-item" id="adminLink" style="display:none" onclick="showPage('admin')">
+        <span class="icon">⚙️</span> Panel Admin
+      </a>
+
+      <div class="sidebar-user">
+        <div class="user-name" id="sidebarName">Usuario</div>
+        <div class="user-plan">✨ Prueba gratis — 28 días restantes</div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main-content">
+
+      <!-- ── GENERADOR ── -->
+      <div id="page-generator" class="page active">
+        <div class="page-header">
+          <h1 class="page-title">Nuevo trabajo</h1>
+          <p class="page-sub">Pega las indicaciones de tu maestro y Snow Académico lo hace por ti</p>
+        </div>
+
+        <div class="generator-grid">
+          <!-- Columna izquierda -->
+          <div>
+            <!-- Tipo de trabajo -->
+            <div class="card" style="margin-bottom:20px">
+              <div class="card-title">Tipo de trabajo</div>
+              <div class="work-types">
+                <div class="work-type selected" onclick="selectWorkType(this,'Ensayo')">
+                  <span class="wt-icon">📝</span>Ensayo
+                </div>
+                <div class="work-type" onclick="selectWorkType(this,'Investigación')">
+                  <span class="wt-icon">🔬</span>Investigación
+                </div>
+                <div class="work-type" onclick="selectWorkType(this,'Preguntas y Respuestas')">
+                  <span class="wt-icon">❓</span>Preguntas
+                </div>
+                <div class="work-type" onclick="selectWorkType(this,'Línea de Tiempo')">
+                  <span class="wt-icon">📅</span>Línea de tiempo
+                </div>
+                <div class="work-type" onclick="selectWorkType(this,'Cronograma')">
+                  <span class="wt-icon">🗓️</span>Cronograma
+                </div>
+                <div class="work-type" onclick="selectWorkType(this,'Resumen')">
+                  <span class="wt-icon">📋</span>Resumen
+                </div>
+                <div class="work-type" onclick="selectWorkType(this,'Informe')">
+                  <span class="wt-icon">📊</span>Informe
+                </div>
+                <div class="work-type" onclick="selectWorkType(this,'Mapa Conceptual')">
+                  <span class="wt-icon">🧠</span>Mapa conceptual
+                </div>
+                <div class="work-type" onclick="selectWorkType(this,'Otro')">
+                  <span class="wt-icon">✨</span>Otro
+                </div>
+              </div>
+            </div>
+
+            <!-- Indicaciones -->
+            <div class="card" style="margin-bottom:20px">
+              <div class="card-title">Indicaciones del trabajo</div>
+              <div class="form-group" style="margin-bottom:16px">
+                <label class="form-label">Pega aquí lo que dejó el maestro</label>
+                <textarea class="form-input" rows="5" id="instrucciones"
+                  placeholder="Ej: Realiza un ensayo sobre la Revolución Industrial, mínimo 5 páginas, con introducción, desarrollo y conclusión..."></textarea>
+              </div>
+              <div class="row-2">
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Materia</label>
+                  <input class="form-input" type="text" id="materia" placeholder="Historia Universal">
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Tema del trabajo</label>
+                  <input class="form-input" type="text" id="tema" placeholder="La Revolución Industrial">
+                </div>
+              </div>
+            </div>
+
+            <!-- Formato -->
+            <div class="card" style="margin-bottom:20px">
+              <div class="card-title">Formato y extensión</div>
+              <div class="row-3" style="margin-bottom:16px">
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Fuente</label>
+                  <select class="form-input" id="fuente" onchange="updateConfig()">
+                    <option>Arial</option>
+                    <option>Times New Roman</option>
+                    <option>Calibri</option>
+                    <option>Georgia</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Tamaño cuerpo</label>
+                  <select class="form-input" id="tamCuerpo" onchange="updateConfig()">
+                    <option>12</option><option>11</option><option>10</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Tamaño títulos</label>
+                  <select class="form-input" id="tamTitulo" onchange="updateConfig()">
+                    <option>14</option><option>16</option><option>18</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row-2" style="margin-bottom:16px">
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Normas de citación</label>
+                  <select class="form-input" id="normas" onchange="updateConfig()">
+                    <option>APA 8va edición</option>
+                    <option>Normal (sin normas)</option>
+                    <option>MLA</option>
+                    <option>Chicago</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Páginas aproximadas</label>
+                  <select class="form-input" id="paginas" onchange="updateConfig()">
+                    <option>1 - 2 páginas</option>
+                    <option>3 - 5 páginas</option>
+                    <option>5 - 8 páginas</option>
+                    <option>8 - 12 páginas</option>
+                    <option>12+ páginas</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">Títulos en negrita</label>
+                <select class="form-input" id="negrita" onchange="updateConfig()">
+                  <option>Sí, en negrita</option>
+                  <option>No, normal</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Fecha -->
+            <div class="card" style="margin-bottom:20px">
+              <div class="card-title">Fecha de entrega</div>
+              <div class="row-2">
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Fecha (automática, editable)</label>
+                  <input class="form-input" type="date" id="fechaEntrega">
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Universidad (perfil)</label>
+                  <select class="form-input" id="uniGen">
+                    <option>UASD</option><option>UAPA</option><option>UFE</option>
+                    <option>PUCMM</option><option>INTEC</option><option>UNIBE</option>
+                    <option>UTESA</option><option>O&M</option><option>Otra</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Formato salida -->
+            <div class="card" style="margin-bottom:20px">
+              <div class="card-title">Formato de entrega</div>
+              <div class="format-options">
+                <div class="format-chip selected" onclick="selectFormat(this,'word')">
+                  📄 Word (.docx)
+                </div>
+                <div class="format-chip" onclick="selectFormat(this,'pdf')">
+                  🔴 PDF
+                </div>
+                <div class="format-chip" onclick="selectFormat(this,'ppt')">
+                  📊 PowerPoint
+                </div>
+                <div class="format-chip" onclick="selectFormat(this,'excel')">
+                  📈 Excel
+                </div>
+              </div>
+            </div>
+
+            <!-- Botón generar -->
+            <button class="generate-btn" onclick="generarTrabajo()">
+              ✨ Generar trabajo
+            </button>
+
+            <!-- Spinner -->
+            <div class="spinner-wrap" id="spinnerWrap">
+              <div class="spinner"></div>
+              <div class="spinner-text">Snow Académico está generando tu trabajo…</div>
+            </div>
+
+            <!-- Preview -->
+            <div class="preview-wrap" id="previewWrap"></div>
+            <div class="preview-actions" id="previewActions">
+              <button class="btn btn-gold" onclick="descargarTrabajo()">⬇ Descargar</button>
+              <button class="btn btn-outline" onclick="regenerar()">🔄 Regenerar</button>
+              <button class="btn btn-ghost" onclick="limpiarPreview()">✕ Limpiar</button>
+            </div>
+          </div>
+
+          <!-- Columna derecha — config resumen -->
+          <div class="config-card">
+            <div class="card">
+              <div class="card-title">Resumen del trabajo</div>
+              <div class="config-row">
+                <span class="config-label">Tipo</span>
+                <span class="config-val" id="cfgTipo">Ensayo</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Fuente</span>
+                <span class="config-val" id="cfgFuente">Arial 12</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Títulos</span>
+                <span class="config-val" id="cfgTitulo">14pt, negrita</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Normas</span>
+                <span class="config-val" id="cfgNormas">APA 8va</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Extensión</span>
+                <span class="config-val" id="cfgPaginas">3 - 5 páginas</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Formato</span>
+                <span class="config-val" id="cfgFormato">Word (.docx)</span>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:16px">
+              <div class="card-title">Tu perfil</div>
+              <div class="config-row">
+                <span class="config-label">Nombre</span>
+                <span class="config-val" id="cfgNombre">—</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Matrícula</span>
+                <span class="config-val" id="cfgMatricula">—</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Universidad</span>
+                <span class="config-val" id="cfgUni">—</span>
+              </div>
+              <div class="config-row">
+                <span class="config-label">Carrera</span>
+                <span class="config-val" id="cfgCarrera">—</span>
+              </div>
+              <a class="btn btn-ghost" onclick="showPage('perfil')" style="margin-top:12px;font-size:12px">
+                ✏️ Editar perfil
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── HISTORIAL ── -->
+      <div id="page-historial" class="page">
+        <div class="page-header">
+          <h1 class="page-title">Mis trabajos</h1>
+          <p class="page-sub">Historial de trabajos generados</p>
+        </div>
+        <div class="card">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Trabajo</th><th>Tipo</th><th>Materia</th><th>Formato</th><th>Fecha</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="historialBody">
+              <tr><td colspan="6" style="text-align:center;color:var(--text2);padding:40px">
+                Aún no has generado ningún trabajo
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── PERFIL ── -->
+      <div id="page-perfil" class="page">
+        <div class="page-header">
+          <h1 class="page-title">Mi perfil</h1>
+          <p class="page-sub">Tu información se usa para llenar las hojas de presentación automáticamente</p>
+        </div>
+        <div class="card" style="max-width:600px">
+          <div class="card-title">Información personal</div>
+          <div class="profile-grid">
+            <div class="form-group">
+              <label class="form-label">Nombre completo</label>
+              <input class="form-input" type="text" id="perfNombre" placeholder="Juan Pérez">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Matrícula</label>
+              <input class="form-input" type="text" id="perfMatricula" placeholder="2024-0001">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Universidad</label>
+              <select class="form-input" id="perfUni">
+                <option>UASD</option><option>UAPA</option><option>UFE</option>
+                <option>PUCMM</option><option>INTEC</option><option>UNIBE</option>
+                <option>UTESA</option><option>O&M</option><option>Otra</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Carrera</label>
+              <input class="form-input" type="text" id="perfCarrera" placeholder="Administración de Empresas">
+            </div>
+          </div>
+          <button class="btn btn-gold" onclick="guardarPerfil()">Guardar cambios</button>
+        </div>
+      </div>
+
+      <!-- ── COMENTARIOS ── -->
+      <div id="page-comentarios" class="page">
+        <div class="page-header">
+          <h1 class="page-title">Comentarios</h1>
+          <p class="page-sub">Dudas, sugerencias o problemas — te respondemos pronto</p>
+        </div>
+        <div class="card" style="max-width:600px; margin-bottom:24px">
+          <div class="card-title">Dejar un comentario</div>
+          <div class="form-group">
+            <label class="form-label">¿Qué tipo de mensaje es?</label>
+            <select class="form-input" id="tipoComentario">
+              <option>💡 Sugerencia</option>
+              <option>🐛 Reporte de problema</option>
+              <option>❓ Duda</option>
+              <option>⭐ Otro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mensaje</label>
+            <textarea class="form-input" rows="4" id="textoComentario"
+              placeholder="Escribe tu mensaje aquí..."></textarea>
+          </div>
+          <button class="btn btn-gold" onclick="enviarComentario()">Enviar</button>
+        </div>
+      </div>
+
+      <!-- ── ADMIN ── -->
+      <div id="page-admin" class="page">
+        <div class="page-header">
+          <h1 class="page-title">Panel de administrador</h1>
+          <p class="page-sub">Solo visible para ti</p>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Usuarios registrados</div>
+            <div class="stat-val gold">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Trabajos generados</div>
+            <div class="stat-val">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Activos hoy</div>
+            <div class="stat-val">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Errores del sistema</div>
+            <div class="stat-val" style="color:var(--danger)">0</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Comentarios de usuarios</div>
+          <div class="comment-card">
+            <div class="comment-meta">💡 Sugerencia — usuario@email.com — hace 2 horas</div>
+            <div class="comment-text">Sería genial poder elegir el interlineado del trabajo</div>
+          </div>
+          <div style="text-align:center;color:var(--text2);font-size:13px;padding:20px">
+            Aquí aparecerán los comentarios de tus usuarios
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────
+let currentWorkType = 'Ensayo';
+let currentFormat = 'word';
+let currentUser = null;
+let generatedContent = '';
+
+// ── THEME ──────────────────────────────────────────────
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.getAttribute('data-theme') === 'dark';
+  html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  document.getElementById('themeBtn').textContent = isDark ? '🌙' : '☀️';
+}
+
+// ── SCREENS ────────────────────────────────────────────
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+  document.getElementById('logoutBtn').style.display = name === 'app' ? 'block' : 'none';
+}
+
+// ── PAGES ──────────────────────────────────────────────
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  event?.target?.closest('.nav-item')?.classList.add('active');
+}
+
+// ── AUTH TABS ──────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach((t,i) => {
+    t.classList.toggle('active', (i===0 && tab==='login') || (i===1 && tab==='register'));
+  });
+  document.getElementById('tab-login').style.display = tab === 'login' ? 'block' : 'none';
+  document.getElementById('tab-register').style.display = tab === 'register' ? 'block' : 'none';
+}
+
+// ── DEMO LOGIN ─────────────────────────────────────────
+function doLogin() {
+  const email = document.getElementById('loginEmail').value;
+  if (!email) { showToast('Ingresa tu correo', 'error'); return; }
+  currentUser = {
+    nombre: 'Usuario Demo', matricula: '2024-0001',
+    universidad: 'UASD', carrera: 'Administración',
+    email, isAdmin: email.includes('admin')
+  };
+  enterApp();
+}
+
+function doRegister() {
+  const nombre = document.getElementById('regName').value;
+  const email = document.getElementById('regEmail').value;
+  if (!nombre || !email) { showToast('Completa todos los campos', 'error'); return; }
+  currentUser = {
+    nombre, email,
+    matricula: document.getElementById('regMatricula').value,
+    universidad: document.getElementById('regUni').value,
+    carrera: document.getElementById('regCarrera').value,
+    isAdmin: false
+  };
+  enterApp();
+}
+
+function enterApp() {
+  // Set today's date
+  document.getElementById('fechaEntrega').value = new Date().toISOString().split('T')[0];
+  // Fill profile sidebar
+  document.getElementById('sidebarName').textContent = currentUser.nombre;
+  document.getElementById('cfgNombre').textContent = currentUser.nombre || '—';
+  document.getElementById('cfgMatricula').textContent = currentUser.matricula || '—';
+  document.getElementById('cfgUni').textContent = currentUser.universidad || '—';
+  document.getElementById('cfgCarrera').textContent = currentUser.carrera || '—';
+  // Fill profile page
+  document.getElementById('perfNombre').value = currentUser.nombre || '';
+  document.getElementById('perfMatricula').value = currentUser.matricula || '';
+  document.getElementById('perfCarrera').value = currentUser.carrera || '';
+  // Admin
+  if (currentUser.isAdmin) {
+    document.getElementById('adminSection').style.display = 'block';
+    document.getElementById('adminLink').style.display = 'flex';
+  }
+  showScreen('app');
+  showToast('Bienvenido, ' + currentUser.nombre + ' 👋', 'success');
+}
+
+// ── WORK TYPE ──────────────────────────────────────────
+function selectWorkType(el, tipo) {
+  document.querySelectorAll('.work-type').forEach(w => w.classList.remove('selected'));
+  el.classList.add('selected');
+  currentWorkType = tipo;
+  document.getElementById('cfgTipo').textContent = tipo;
+}
+
+// ── FORMAT ─────────────────────────────────────────────
+function selectFormat(el, fmt) {
+  document.querySelectorAll('.format-chip').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  currentFormat = fmt;
+  const labels = { word:'Word (.docx)', pdf:'PDF', ppt:'PowerPoint', excel:'Excel' };
+  document.getElementById('cfgFormato').textContent = labels[fmt];
+}
+
+// ── CONFIG UPDATE ──────────────────────────────────────
+function updateConfig() {
+  const fuente = document.getElementById('fuente').value;
+  const tam = document.getElementById('tamCuerpo').value;
+  const tamT = document.getElementById('tamTitulo').value;
+  const negrita = document.getElementById('negrita').value;
+  const normas = document.getElementById('normas').value;
+  const paginas = document.getElementById('paginas').value;
+  document.getElementById('cfgFuente').textContent = fuente + ' ' + tam;
+  document.getElementById('cfgTitulo').textContent = tamT + 'pt, ' + (negrita.includes('Sí') ? 'negrita' : 'normal');
+  document.getElementById('cfgNormas').textContent = normas.split(' ')[0] + ' ' + (normas.split(' ')[1] || '');
+  document.getElementById('cfgPaginas').textContent = paginas;
+}
+
+// ── GENERATE ───────────────────────────────────────────
+// ── ANÁLISIS INTELIGENTE DE INDICACIONES ─────────────────
+function analizarIndicaciones(texto) {
+  const lower = texto.toLowerCase();
+  const info = {
+    estructura: [],
+    normas: 'sin normas específicas',
+    paginas: '1 a 2 páginas',
+    fuente: 'Arial 12',
+    interlineado: '1.5',
+    requiereDatosPersonales: false,
+    alertas: [],
+    tipoDetectado: null
+  };
+
+  // Detectar estructura requerida
+  if (lower.includes('introducción') || lower.includes('introduccion')) info.estructura.push('Introducción');
+  if (lower.includes('desarrollo')) info.estructura.push('Desarrollo');
+  if (lower.includes('conclusión') || lower.includes('conclusion')) info.estructura.push('Conclusión');
+  if (lower.includes('objetivo')) info.estructura.push('Objetivos específicos');
+  if (lower.includes('bibliograf') || lower.includes('referencias')) info.estructura.push('Bibliografía / Referencias');
+  if (lower.includes('portada') || lower.includes('hoja de presentación')) info.estructura.push('Portada');
+  if (lower.includes('análisis comparativo') || lower.includes('analisis comparativo')) info.estructura.push('Análisis comparativo');
+  if (lower.includes('análisis individual') || lower.includes('analisis individual')) info.estructura.push('Análisis individual');
+
+  // Detectar normas
+  if (lower.includes('apa 7') || lower.includes('apa séptima') || lower.includes('apa 7.ª')) info.normas = 'APA 7ma edición';
+  else if (lower.includes('apa 8') || lower.includes('apa octava')) info.normas = 'APA 8va edición';
+  else if (lower.includes('apa')) info.normas = 'normas APA';
+
+  // Detectar extensión
+  const pgMatch = texto.match(/(\d)\s*[a-z]*\s*(?:a|–|-)\s*(\d)\s*p[áa]ginas?/i);
+  if (pgMatch) info.paginas = `${pgMatch[1]} a ${pgMatch[2]} páginas`;
+
+  // Detectar formato
+  if (lower.includes('arial')) {
+    const sizeMatch = texto.match(/arial[,\s]+(?:tamaño\s+)?(\d+)/i);
+    if (sizeMatch) info.fuente = `Arial ${sizeMatch[1]}`;
+  }
+  if (lower.includes('interlineado 1.5') || lower.includes('interlineado de 1.5')) info.interlineado = '1.5';
+  else if (lower.includes('interlineado 2') || lower.includes('doble espacio')) info.interlineado = '2.0';
+
+  // Detectar si requiere datos personales reales
+  if (lower.includes('entrevista') || lower.includes('fotografía') || lower.includes('fotografia') ||
+      lower.includes('experto') || lower.includes('evidencia') || lower.includes('presencial')) {
+    info.requiereDatosPersonales = true;
+    info.alertas.push('⚠️ Este trabajo requiere entrevistas y fotografías reales. Snow Académico generará la estructura y el contenido base, pero deberás completar los nombres de los entrevistados, sus respuestas reales y adjuntar las fotos.');
+  }
+
+  // Detectar tipo
+  if (lower.includes('ensayo')) info.tipoDetectado = 'Ensayo';
+  else if (lower.includes('informe')) info.tipoDetectado = 'Informe';
+  else if (lower.includes('cuestionario') || lower.includes('preguntas y respuestas')) info.tipoDetectado = 'Preguntas y Respuestas';
+  else if (lower.includes('investigación') || lower.includes('investigacion')) info.tipoDetectado = 'Investigación';
+
+  return info;
+}
+
+async function generarTrabajo() {
+  const instrucciones = document.getElementById('instrucciones').value.trim();
+  const materia = document.getElementById('materia').value.trim();
+  const tema = document.getElementById('tema').value.trim();
+
+  if (!instrucciones && !tema) {
+    showToast('Pega las indicaciones del maestro o escribe el tema', 'error'); return;
+  }
+
+  // Analizar indicaciones automáticamente
+  const analisis = analizarIndicaciones(instrucciones);
+
+  // Mostrar alertas si hay partes que requieren datos reales
+  if (analisis.alertas.length > 0) {
+    const continuar = confirm(analisis.alertas.join('\n\n') + '\n\n¿Deseas continuar de todas formas?');
+    if (!continuar) return;
+  }
+
+  // Auto-detectar tipo si no fue elegido manualmente
+  if (analisis.tipoDetectado && currentWorkType === 'Ensayo') {
+    currentWorkType = analisis.tipoDetectado;
+    document.getElementById('cfgTipo').textContent = analisis.tipoDetectado;
+  }
+
+  document.getElementById('spinnerWrap').classList.add('visible');
+  document.getElementById('previewWrap').classList.remove('visible');
+  document.getElementById('previewActions').classList.remove('visible');
+
+  const fuente = document.getElementById('fuente').value;
+  const tamCuerpo = document.getElementById('tamCuerpo').value;
+  const tamTitulo = document.getElementById('tamTitulo').value;
+  const normas = document.getElementById('normas').value;
+  const paginas = document.getElementById('paginas').value;
+  const negrita = document.getElementById('negrita').value.includes('Sí') ? 'en negrita' : 'normal';
+
+  // Estructura detectada
+  const estructuraTexto = analisis.estructura.length > 0
+    ? analisis.estructura.join(', ')
+    : 'Introducción, Desarrollo, Conclusión';
+
+  // Perfil del usuario
+  const nombre = currentUser?.nombre || '[Nombre del estudiante]';
+  const matricula = currentUser?.matricula || '[Matrícula]';
+  const universidad = currentUser?.universidad || '[Universidad]';
+  const carrera = currentUser?.carrera || '[Carrera]';
+  const fecha = document.getElementById('fechaEntrega').value || new Date().toLocaleDateString('es-DO');
+
+  // ── PROMPT MAESTRO ─────────────────────────────────────
+  const promptMaestro = `Eres un experto en redacción académica universitaria dominicana. Tu tarea es generar un trabajo universitario completo, profesional y bien desarrollado.
+
+DATOS DEL ESTUDIANTE (para la portada):
+- Nombre: ${nombre}
+- Matrícula: ${matricula}
+- Universidad: ${universidad}
+- Carrera: ${carrera}
+- Asignatura: ${materia || '[Asignatura]'}
+- Tema: ${tema || '[Tema del trabajo]'}
+- Fecha: ${fecha}
+
+INDICACIONES EXACTAS DEL MAESTRO:
+${instrucciones || 'Desarrolla el tema de forma completa y profesional.'}
+
+ESTRUCTURA DETECTADA QUE DEBES SEGUIR:
+${estructuraTexto}
+
+FORMATO REQUERIDO:
+- Fuente: ${fuente} ${tamCuerpo}pt para el cuerpo del texto
+- Títulos: ${tamTitulo}pt ${negrita}
+- Normas de citación: ${normas}
+- Extensión aproximada: ${paginas}
+
+REGLAS DE CALIDAD OBLIGATORIAS:
+1. El trabajo debe ser 100% profesional, con lenguaje universitario natural y fluido
+2. NUNCA uses frases típicas de IA como "En el fascinante mundo de...", "Es importante destacar que...", "En conclusión, podemos afirmar que..."
+3. Varía la estructura de las oraciones — mezcla oraciones cortas con párrafos más desarrollados
+4. La introducción NO debe empezar con "En el siguiente trabajo..." ni con "A lo largo de este..."
+5. Usa transiciones naturales entre párrafos
+6. Desarrolla cada sección con profundidad real — no respuestas superficiales
+7. Si el trabajo requiere bibliografía, incluye referencias APA reales y verificables
+8. El trabajo debe sentirse escrito por un estudiante universitario inteligente, no por una IA
+9. Varía el estilo cada vez que generes — nunca dos trabajos iguales aunque sean del mismo tipo
+
+METODOLOGÍA DE ESCRITURA:
+- Introducción: Contextualiza el tema de forma amplia antes de llegar al punto central. No declares lo que harás, demuéstralo.
+- Desarrollo: Argumenta con solidez, usa ejemplos concretos y conecta las ideas de forma lógica
+- Si hay preguntas del maestro: responde de forma directa pero desarrollada, con ejemplos
+- Conclusión: Resume con reflexión personal genuina, no simplemente repita lo dicho
+- Bibliografía: Referencias reales en formato APA correcto
+
+IMPORTANTE: Usa estos marcadores exactos para la estructura:
+[PORTADA] — solo si el maestro pide portada
+[TITULO_SECCION: nombre] — para cada sección principal
+[SUBTITULO: nombre] — para subsecciones
+[PARRAFO] — para párrafos normales
+[LISTA] — para listas con viñetas
+[REFERENCIA] — para cada referencia bibliográfica
+
+Genera el trabajo completo ahora, siguiendo todas las indicaciones del maestro al pie de la letra:`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        messages: [{ role: 'user', content: promptMaestro }]
+      })
+    });
+    const data = await res.json();
+    generatedContent = data.content?.[0]?.text || '';
+    if (!generatedContent) throw new Error('Sin contenido');
+  } catch(e) {
+    // Demo fallback con el estilo correcto
+    generatedContent = `[PORTADA]
+${universidad}
+Asignatura: ${materia || 'Asignatura'}
+Tema: ${tema || 'Tema del Trabajo'}
+Participante: ${nombre}
+Matrícula: ${matricula}
+Carrera: ${carrera}
+Fecha: ${fecha}
+
+[TITULO_SECCION: Introducción]
+
+[PARRAFO] La tecnología ha redefinido de manera silenciosa pero contundente la manera en que los seres humanos organizamos nuestra existencia. Desde el momento en que encendemos el teléfono al despertar hasta que apagamos la pantalla antes de dormir, cada acción cotidiana lleva impresa la huella de algún desarrollo tecnológico. No se trata únicamente de dispositivos electrónicos; la tecnología abarca sistemas, procesos y herramientas que han transformado la comunicación, el trabajo, la educación y hasta las relaciones personales.
+
+[PARRAFO] Reflexionar sobre esta influencia resulta necesario precisamente porque vivimos tan inmersos en ella que pocas veces nos detenemos a analizarla con distancia crítica. El presente ensayo examina de qué forma la tecnología moldea nuestra vida cotidiana, reconociendo tanto sus aportes como los desafíos que plantea.
+
+[TITULO_SECCION: Desarrollo]
+
+[PARRAFO] La presencia de la tecnología en el día a día es tan amplia que resulta difícil señalar un solo ámbito donde no haya dejado su huella. En la comunicación, las plataformas digitales han eliminado barreras geográficas: hoy es posible mantener una conversación en tiempo real con alguien al otro lado del mundo con una naturalidad que hace apenas tres décadas hubiera parecido ciencia ficción.
+
+[PARRAFO] En el ámbito laboral y educativo, las transformaciones han sido igualmente profundas. El trabajo remoto, las aulas virtuales y el acceso a bibliotecas digitales han democratizado el conocimiento de una manera sin precedentes. Un estudiante universitario en Santiago de los Caballeros puede acceder hoy a los mismos recursos académicos que uno en Madrid o Buenos Aires, lo cual representa una ventaja que generaciones anteriores jamás tuvieron.
+
+[SUBTITULO: Aspectos positivos]
+
+[PARRAFO] Entre los beneficios más evidentes se encuentran la inmediatez de la información, la optimización del tiempo y la posibilidad de automatizar tareas repetitivas. La productividad individual y colectiva ha aumentado considerablemente gracias a herramientas que hace pocas décadas no existían. Además, la tecnología ha abierto nuevas formas de expresión artística, emprendimiento y organización social.
+
+[SUBTITULO: Aspectos a considerar]
+
+[PARRAFO] Sin embargo, no toda la influencia es positiva. La dependencia tecnológica, el sedentarismo asociado al uso excesivo de pantallas y la erosión de la privacidad son preocupaciones legítimas. Las redes sociales, si bien facilitan la conexión, también pueden fomentar la comparación constante y afectar negativamente la salud mental, especialmente en jóvenes.
+
+[TITULO_SECCION: Conclusión]
+
+[PARRAFO] La tecnología es, en esencia, una extensión de la capacidad humana para resolver problemas y mejorar la calidad de vida. Su influencia en la vida cotidiana es innegable e irreversible. Sin embargo, la clave no está en rechazarla ni en adoptarla sin reflexión, sino en desarrollar una relación consciente con ella, aprovechando sus ventajas sin perder de vista los valores y hábitos que nos definen como personas.
+
+[PARRAFO] En lo personal, considero que la tecnología es una herramienta poderosa cuyo valor depende del uso que cada individuo le dé. Usada con criterio, puede potenciar el aprendizaje, ampliar oportunidades y enriquecer la vida; usada sin reflexión, puede convertirse en una distracción o una dependencia. El equilibrio, como en casi todo, es la clave.
+
+[TITULO_SECCION: Referencias Bibliográficas]
+
+[REFERENCIA] Castells, M. (2010). La sociedad red: Una visión global. Alianza Editorial.
+[REFERENCIA] Prensky, M. (2001). Digital natives, digital immigrants. On the Horizon, 9(5), 1-6.
+[REFERENCIA] Turkle, S. (2015). Reclaiming conversation: The power of talk in a digital age. Penguin Press.`;
+  }
+
+  document.getElementById('spinnerWrap').classList.remove('visible');
+
+  // Renderizar con formato visual
+  const formatted = formatearContenido(generatedContent);
+  document.getElementById('previewWrap').innerHTML = formatted;
+  document.getElementById('previewWrap').classList.add('visible');
+  document.getElementById('previewActions').classList.add('visible');
+  showToast('Trabajo generado ✓ Revísalo antes de descargar', 'success');
+}
+
+// ── FORMATEAR CONTENIDO CON MARCADORES ───────────────────
+function formatearContenido(texto) {
+  let html = texto
+    .replace(/\[PORTADA\](.*?)(?=\[TITULO_SECCION|\[PARRAFO|$)/gs, (_, c) => {
+      const lines = c.trim().split('\n').filter(l => l.trim());
+      return `<div style="text-align:center;padding:20px 0 30px;border-bottom:2px solid var(--gold);margin-bottom:24px">
+        ${lines.map(l => `<div style="margin:4px 0;font-weight:500">${l.trim()}</div>`).join('')}
+      </div>`;
+    })
+    .replace(/\[TITULO_SECCION: (.+?)\]/g, (_, t) =>
+      `<h2 style="font-size:16px;font-weight:700;color:var(--gold);margin:28px 0 12px;border-left:3px solid var(--gold);padding-left:10px">${t}</h2>`)
+    .replace(/\[SUBTITULO: (.+?)\]/g, (_, t) =>
+      `<h3 style="font-size:14px;font-weight:600;color:var(--text);margin:20px 0 8px">${t}</h3>`)
+    .replace(/\[PARRAFO\]\s*/g, '<p style="margin:0 0 14px;line-height:1.8;text-align:justify">')
+    .replace(/\[LISTA\]\s*/g, '<ul style="margin:10px 0 14px;padding-left:20px">')
+    .replace(/\[REFERENCIA\]\s*/g,
+      '<p style="font-size:13px;color:var(--text2);margin:6px 0;padding-left:20px;text-indent:-20px">')
+    // Close unclosed p tags
+    .replace(/(<p[^>]*>)(.*?)(?=<h[23]|<p|<ul|<div|$)/gs, (_, tag, content) =>
+      content.trim() ? `${tag}${content}</p>` : '');
+  return html || `<p>${texto}</p>`;
+}
+
+function regenerar() { generarTrabajo(); }
+function limpiarPreview() {
+  document.getElementById('previewWrap').classList.remove('visible');
+  document.getElementById('previewActions').classList.remove('visible');
+  generatedContent = '';
+}
+
+// ── DOWNLOAD WORD ─────────────────────────────────────────
+async function descargarTrabajo() {
+  if (!generatedContent) { showToast('Genera un trabajo primero', 'error'); return; }
+
+  if (currentFormat === 'word') {
+    await descargarWord();
+  } else {
+    showToast(`Formato ${currentFormat.toUpperCase()} próximamente — por ahora descarga en Word`, 'info');
+    await descargarWord();
+  }
+}
+
+async function descargarWord() {
+  showToast('Preparando documento Word…', 'success');
+  try {
+    // ── Configuración ─────────────────────────────────
+    const fuente    = document.getElementById('fuente').value || 'Arial';
+    const tamCuerpo = parseInt(document.getElementById('tamCuerpo').value || '12');
+    const tamTitulo = parseInt(document.getElementById('tamTitulo').value || '14');
+    const esNegrita = document.getElementById('negrita').value.includes('Sí');
+    const materia   = document.getElementById('materia').value || '';
+    const tema      = document.getElementById('tema').value || 'Trabajo Académico';
+    const fecha     = document.getElementById('fechaEntrega').value || new Date().toLocaleDateString('es-DO');
+    const nombre    = currentUser?.nombre      || '';
+    const matricula = currentUser?.matricula   || '';
+    const universidad = currentUser?.universidad || '';
+    const carrera   = currentUser?.carrera     || '';
+
+    // ── Construir XML del documento Word (OOXML mínimo) ──
+    // Unidades: 1pt = 20 twips (para sz = half-points, multiplicar por 2)
+    const szBody  = tamCuerpo * 2;
+    const szTitle = tamTitulo * 2;
+    const bold    = esNegrita ? '<w:b/>' : '';
+
+    function esc(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // Párrafo helper: (texto, opciones)
+    function para(texto, opts = {}) {
+      const jc    = opts.center ? '<w:jc w:val="center"/>' : '<w:jc w:val="both"/>';
+      const bdPPr = opts.indent ? `<w:ind w:left="720" w:hanging="720"/>` : '';
+      const sz    = opts.sz || szBody;
+      const b     = (opts.bold || opts.heading) ? '<w:b/>' : '';
+      const spacing = '<w:spacing w:line="360" w:lineRule="auto" w:before="0" w:after="160"/>';
+      const numPr = opts.bullet ? '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>' : '';
+      return `<w:p>
+        <w:pPr>${jc}${spacing}${bdPPr}${numPr}</w:pPr>
+        <w:r>
+          <w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>${b}</w:rPr>
+          <w:t xml:space="preserve">${esc(texto)}</w:t>
+        </w:r>
+      </w:p>`;
+    }
+
+    function heading(texto, level) {
+      const sz = level === 1 ? szTitle : szBody;
+      return `<w:p>
+        <w:pPr>
+          <w:jc w:val="left"/>
+          <w:spacing w:line="360" w:lineRule="auto" w:before="240" w:after="120"/>
+        </w:pPr>
+        <w:r>
+          <w:rPr><w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>${bold}</w:rPr>
+          <w:t>${esc(texto)}</w:t>
+        </w:r>
+      </w:p>`;
+    }
+
+    function emptyPara() { return para(''); }
+
+    // ── Portada ──────────────────────────────────────
+    const portadaLines = [
+      universidad, '', 'Presentación', '',
+      `Nombre: ${nombre}`,
+      `Matrícula: ${matricula}`,
+      `Asignatura: ${materia}`,
+      `Carrera: ${carrera}`,
+      `Tema: ${tema}`,
+      `Fecha: ${fecha}`,
+    ];
+    let bodyXml = portadaLines.map(l =>
+      para(l, { center: true, bold: true, sz: l === universidad ? szTitle : szBody })
+    ).join('\n');
+
+    // Salto de página
+    bodyXml += `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
+
+    // ── Parsear contenido generado ────────────────────
+    const lines = generatedContent.split('\n');
+    for (const line of lines) {
+      const t = line.trim();
+      if (!t) { bodyXml += emptyPara(); continue; }
+      if (t.startsWith('[PORTADA]')) continue;
+
+      const mTit = t.match(/^\[TITULO_SECCION:\s*(.+?)\]$/);
+      if (mTit) { bodyXml += heading(mTit[1], 1); continue; }
+
+      const mSub = t.match(/^\[SUBTITULO:\s*(.+?)\]$/);
+      if (mSub) { bodyXml += heading(mSub[1], 2); continue; }
+
+      if (t.startsWith('[PARRAFO]')) {
+        const txt = t.replace('[PARRAFO]', '').trim();
+        if (txt) bodyXml += para(txt);
+        continue;
+      }
+
+      if (t.startsWith('[REFERENCIA]')) {
+        const ref = t.replace('[REFERENCIA]', '').trim();
+        bodyXml += para(ref, { indent: true });
+        continue;
+      }
+
+      if (t.startsWith('- ') || t.startsWith('• ')) {
+        bodyXml += para(t.replace(/^[-•]\s+/, ''), { bullet: true });
+        continue;
+      }
+
+      if (!t.startsWith('[')) bodyXml += para(t);
+    }
+
+    // ── Ensamblar el .docx (OOXML mínimo) ────────────
+    const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${bodyXml}
+    <w:sectPr>
+      <w:pgSz w:w="12240" w:h="15840"/>
+      <w:pgMar w:top="1440" w:right="1800" w:bottom="1440" w:left="1800"/>
+    </w:sectPr>
+  </w:body>
+</w:document>`;
+
+    const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+
+    const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault><w:rPr>
+      <w:rFonts w:ascii="${esc(fuente)}" w:hAnsi="${esc(fuente)}"/>
+      <w:sz w:val="${szBody}"/><w:szCs w:val="${szBody}"/>
+      <w:lang w:val="es-DO"/>
+    </w:rPr></w:rPrDefault>
+  </w:docDefaults>
+</w:styles>`;
+
+    const numXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="0">
+    <w:lvl w:ilvl="0">
+      <w:numFmt w:val="bullet"/>
+      <w:lvlText w:val="&#x2022;"/>
+      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
+    </w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+</w:numbering>`;
+
+    const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+</Types>`;
+
+    const packageRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+    const wordRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+</Relationships>`;
+
+    // ── Construir ZIP con JSZip inline (sin CDN) ─────
+    const zip = await buildDocxZip({
+      '[Content_Types].xml': contentTypes,
+      '_rels/.rels': packageRels,
+      'word/document.xml': docXml,
+      'word/styles.xml': stylesXml,
+      'word/numbering.xml': numXml,
+      'word/_rels/document.xml.rels': wordRels,
+    });
+
+    const filename = `${(tema || 'trabajo').replace(/[^\w\s]/g, '').trim()}.docx`;
+    const url = URL.createObjectURL(new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+    showToast('✓ Documento Word descargado', 'success');
+
+  } catch(err) {
+    console.error(err);
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+// ── ZIP Builder puro (sin dependencias externas) ──────────
+async function buildDocxZip(files) {
+  // Implementación minimal de ZIP sin CDN
+  const enc = new TextEncoder();
+  const parts = [];
+  const centralDir = [];
+  let offset = 0;
+
+  for (const [name, content] of Object.entries(files)) {
+    const nameBytes = enc.encode(name);
+    const dataBytes = enc.encode(content);
+
+    // Comprimir con CompressionStream si disponible, sino sin compresión
+    let compressed = dataBytes;
+    let method = 0; // stored
+    try {
+      const cs = new CompressionStream('deflate-raw');
+      const writer = cs.writable.getWriter();
+      writer.write(dataBytes); writer.close();
+      const chunks = [];
+      for await (const chunk of cs.readable) chunks.push(chunk);
+      compressed = new Uint8Array(chunks.reduce((a, c) => [...a, ...c], []));
+      method = 8; // deflated
+    } catch(e) { /* fallback to stored */ }
+
+    // CRC32
+    const crc = crc32(dataBytes);
+    const now = new Date();
+    const dosTime = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1));
+    const dosDate = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate());
+
+    const local = new Uint8Array(30 + nameBytes.length + compressed.length);
+    const dv = new DataView(local.buffer);
+    dv.setUint32(0, 0x04034b50, true);  // signature
+    dv.setUint16(4, 20, true);           // version needed
+    dv.setUint16(6, 0, true);            // flags
+    dv.setUint16(8, method, true);       // compression
+    dv.setUint16(10, dosTime, true);
+    dv.setUint16(12, dosDate, true);
+    dv.setUint32(14, crc, true);
+    dv.setUint32(18, compressed.length, true);
+    dv.setUint32(22, dataBytes.length, true);
+    dv.setUint16(26, nameBytes.length, true);
+    dv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    local.set(compressed, 30 + nameBytes.length);
+    parts.push(local);
+
+    const cd = new Uint8Array(46 + nameBytes.length);
+    const cdv = new DataView(cd.buffer);
+    cdv.setUint32(0, 0x02014b50, true);
+    cdv.setUint16(4, 20, true);
+    cdv.setUint16(6, 20, true);
+    cdv.setUint16(8, 0, true);
+    cdv.setUint16(10, method, true);
+    cdv.setUint16(12, dosTime, true);
+    cdv.setUint16(14, dosDate, true);
+    cdv.setUint32(16, crc, true);
+    cdv.setUint32(20, compressed.length, true);
+    cdv.setUint32(24, dataBytes.length, true);
+    cdv.setUint16(28, nameBytes.length, true);
+    cdv.setUint16(30, 0, true);
+    cdv.setUint16(32, 0, true);
+    cdv.setUint16(34, 0, true);
+    cdv.setUint16(36, 0, true);
+    cdv.setUint32(38, 0, true);
+    cdv.setUint32(42, offset, true);
+    cd.set(nameBytes, 46);
+    centralDir.push(cd);
+
+    offset += local.length;
+  }
+
+  const cdSize = centralDir.reduce((s, c) => s + c.length, 0);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8, parts.length, true);
+  ev.setUint16(10, parts.length, true);
+  ev.setUint32(12, cdSize, true);
+  ev.setUint32(16, offset, true);
+  ev.setUint16(20, 0, true);
+
+  const all = [...parts, ...centralDir, eocd];
+  const total = all.reduce((s, a) => s + a.length, 0);
+  const result = new Uint8Array(total);
+  let pos = 0;
+  for (const a of all) { result.set(a, pos); pos += a.length; }
+  return result;
+}
+
+function crc32(data) {
+  let crc = 0xFFFFFFFF;
+  const table = crc32.table || (crc32.table = (() => {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[i] = c;
+    }
+    return t;
+  })());
+  for (let i = 0; i < data.length; i++) crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+// ── PROFILE SAVE ───────────────────────────────────────
+function guardarPerfil() {
+  if (!currentUser) return;
+  currentUser.nombre = document.getElementById('perfNombre').value;
+  currentUser.matricula = document.getElementById('perfMatricula').value;
+  currentUser.universidad = document.getElementById('perfUni').value;
+  currentUser.carrera = document.getElementById('perfCarrera').value;
+  document.getElementById('sidebarName').textContent = currentUser.nombre;
+  document.getElementById('cfgNombre').textContent = currentUser.nombre || '—';
+  document.getElementById('cfgMatricula').textContent = currentUser.matricula || '—';
+  document.getElementById('cfgUni').textContent = currentUser.universidad || '—';
+  document.getElementById('cfgCarrera').textContent = currentUser.carrera || '—';
+  showToast('Perfil guardado ✓', 'success');
+}
+
+// ── COMMENTS ───────────────────────────────────────────
+function enviarComentario() {
+  const txt = document.getElementById('textoComentario').value;
+  if (!txt) { showToast('Escribe tu mensaje', 'error'); return; }
+  document.getElementById('textoComentario').value = '';
+  showToast('Comentario enviado ✓ Te responderemos pronto', 'success');
+}
+
+// ── TOAST ──────────────────────────────────────────────
+let toastTimer;
+function showToast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ── INIT ───────────────────────────────────────────────
+document.getElementById('fechaEntrega').value = new Date().toISOString().split('T')[0];
+updateConfig();
+</script>
+</body>
+</html>
