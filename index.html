@@ -1886,7 +1886,12 @@ async function readGenerationStream(response, onContent = () => {}) {
 }
 
 function normalizarEstructuraEnsayo(texto, tipoTrabajo = 'Ensayo') {
-  const contenido = String(texto || '').trim();
+  // Unifica los encabezados equivalentes antes de validar y exportar. Algunos
+  // proveedores devuelven "Bibliografía / Referencias" como una sola sección.
+  const contenido = String(texto || '').trim().replace(
+    /^\[TITULO_SECCION:\s*(?:Bibliograf[ií]a\s*\/\s*Referencias|Referencias\s*\/\s*Bibliograf[ií]a)\s*\]\s*$/gim,
+    '[TITULO_SECCION: Referencias]'
+  );
   if (!/^ensayo$/i.test(tipoTrabajo) || /^\[TITULO_SECCION:/im.test(contenido)) return contenido;
   const bloques = contenido.split(/\n\s*\n+/).map(bloque => bloque.trim()).filter(Boolean);
   if (bloques.length < 3) return contenido;
@@ -1923,12 +1928,12 @@ function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferen
     const nombre = seccion.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
     if (esLineaDeTiempo && ['introduccion', 'desarrollo', 'conclusion'].includes(nombre)) continue;
     if (nombre === 'bibliografia / referencias') {
-      if (!marcadores.some(t => t === 'bibliografia' || t === 'referencias')) faltantes.push('bibliografía o referencias');
+      if (!marcadores.some(t => /^(?:bibliografia|referencias)(?:\s*\/\s*(?:bibliografia|referencias))?$/.test(t))) faltantes.push('bibliografía o referencias');
     } else if (!marcadores.includes(nombre)) {
       faltantes.push(seccion.toLowerCase());
     }
   }
-  if (requiereReferencias && !marcadores.some(t => t === 'bibliografia' || t === 'referencias')) {
+  if (requiereReferencias && !marcadores.some(t => /^(?:bibliografia|referencias)(?:\s*\/\s*(?:bibliografia|referencias))?$/.test(t))) {
     faltantes.push('referencias');
   }
   const seccionesFaltantes = [...new Set(faltantes)];
@@ -2378,7 +2383,11 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
           const validationMessage = String(validationError.message || '');
           const missingMatch = validationMessage.match(/faltan\s+(.+?)\.\s+No se descarg[oó]/i);
           const sectionContentMatch = validationMessage.match(/secci[oó]n\s+(introduccion|desarrollo|conclusion)\s+(?:tiene poco o ning[uú]n contenido|no tiene contenido)/i);
-          const sectionToRepair = sectionContentMatch?.[1] || missingMatch?.[1];
+          const faltantesDetectados = missingMatch?.[1]
+            .split(/,\s*/)
+            .map(item => item.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase());
+          const sectionToRepair = sectionContentMatch?.[1]
+            || (faltantesDetectados?.length === 1 ? faltantesDetectados[0] : '');
           if (!sectionToRepair || reparacionesEstructurales >= maxReparacionesEstructurales) throw validationError;
           reparacionEstructural = sectionToRepair;
           reparacionesEstructurales += 1;
