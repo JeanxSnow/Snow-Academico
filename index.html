@@ -125,6 +125,13 @@
     text-align: center; color: var(--text2);
     font-size: 13px; margin-bottom: 36px;
   }
+  .auth-info {
+    padding: 13px 15px; margin: -16px 0 24px;
+    border: 1px solid var(--border); border-left: 3px solid var(--gold);
+    border-radius: 9px; color: var(--text2); text-align: left;
+    font-size: 12px; line-height: 1.6;
+  }
+  .auth-info strong { color: var(--text); }
   .auth-tabs {
     display: flex; border-bottom: 1px solid var(--border);
     margin-bottom: 28px;
@@ -345,6 +352,13 @@
     flex-wrap: wrap; display: none;
   }
   .preview-actions.visible { display: flex; }
+  .review-notice {
+    display: none; margin-top: 12px; padding: 13px 15px;
+    border: 1px solid var(--border); border-left: 3px solid var(--gold);
+    border-radius: 9px; color: var(--text2); font-size: 13px; line-height: 1.55;
+  }
+  .preview-actions.visible + .review-notice { display: block; }
+  .workflow-note { margin: 10px 2px 0; color: var(--text2); font-size: 12px; line-height: 1.55; }
 
   /* ── UNIVERSITIES ── */
   .uni-grid {
@@ -470,6 +484,7 @@
     <div class="auth-card">
       <div class="auth-logo">Snow Académico</div>
       <div class="auth-sub">Trabajos universitarios profesionales con IA</div>
+      <div class="auth-info"><strong>¿Qué hace Snow Académico?</strong> Te ayuda a preparar borradores académicos a partir de las indicaciones de tu asignatura. Elige el tipo de trabajo y el formato; luego revisa el contenido, verifica las fuentes y ajústalo con tus ideas antes de entregarlo. La herramienta puede cometer errores y no sustituye las instrucciones de tu docente.</div>
 
       <div class="auth-tabs">
         <div class="auth-tab active" onclick="switchTab('login')">Iniciar sesión</div>
@@ -532,7 +547,10 @@
           Crear cuenta
         </button>
         <p style="text-align:center;font-size:11px;color:var(--text2);margin-top:12px">
-          Al registrarte aceptas los términos de uso
+          Al registrarte aceptas los términos de uso.
+        </p>
+        <p style="text-align:center;font-size:11px;color:var(--text2);margin-top:8px;line-height:1.5">
+          Tu cuenta te permite guardar tu perfil y acceder desde tus dispositivos. No incluyas contraseñas ni información confidencial en las indicaciones.
         </p>
       </div>
 
@@ -765,6 +783,7 @@
             <button class="generate-btn" onclick="generarTrabajo()">
               ✨ Generar trabajo
             </button>
+            <p class="workflow-note">Antes de empezar, confirma el tema, las indicaciones y la extensión. Mientras genera, mantén esta página abierta y no inicies el mismo trabajo otra vez.</p>
 
             <div class="generation-controls" id="generationControls">
               <button class="btn btn-outline" id="pauseGenerationBtn" type="button" onclick="toggleGenerationPause()">Pausar visualización</button>
@@ -784,6 +803,7 @@
               <button class="btn btn-outline" onclick="regenerar()">🔄 Regenerar</button>
               <button class="btn btn-ghost" onclick="limpiarPreview()">✕ Limpiar</button>
             </div>
+            <div class="review-notice" role="note"><strong>Antes de entregarlo:</strong> revisa y corrige el contenido, verifica que las citas y referencias sean reales y pertinentes, y adapta el borrador a tus ideas y a las instrucciones de tu docente. Comprueba también el formato del archivo descargado.</div>
           </div>
 
           <!-- Columna derecha — config resumen -->
@@ -920,7 +940,7 @@
             <textarea class="form-input" rows="4" id="textoComentario"
               placeholder="Escribe tu mensaje aquí..."></textarea>
           </div>
-          <button class="btn btn-gold" onclick="enviarComentario()">Enviar</button>
+          <button class="btn btn-gold" id="commentSendBtn" onclick="enviarComentario()">Enviar</button>
         </div>
       </div>
 
@@ -954,28 +974,29 @@
         </div>
         <div class="card" style="margin-bottom:18px">
           <div class="card-title">Límite diario de créditos por usuario</div>
-          <p class="page-sub">Cada trabajo completado o cancelado consume un crédito. Los errores técnicos no consumen créditos.</p>
+          <p class="page-sub">Cada trabajo completado o cancelado consume un crédito. Los errores técnicos no consumen créditos. Tu cuenta administradora no tiene límite interno; siguen aplicando las cuotas de los proveedores.</p>
           <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
             <div class="form-group" style="margin:0;min-width:180px">
-              <label class="form-label" for="adminDailyCreditLimit">Créditos diarios (0–50)</label>
+              <label class="form-label" for="adminDailyCreditLimit">Límite diario por usuario (0–50)</label>
               <input class="form-input" type="number" min="0" max="50" step="1" id="adminDailyCreditLimit" value="5">
             </div>
             <button class="btn btn-gold" type="button" onclick="saveAdminCreditLimit()">Guardar límite</button>
             <span id="adminCreditsStatus" class="page-sub" style="margin:0"></span>
           </div>
           <div style="overflow-x:auto;margin-top:14px">
-            <table class="history-table"><thead><tr><th>Correo</th><th>Usados hoy</th><th>En curso</th><th>Disponibles</th></tr></thead>
-              <tbody id="adminCreditsTable"><tr><td colspan="4" style="color:var(--text2)">Carga el panel para ver el uso de hoy.</td></tr></tbody>
+            <table class="history-table"><thead><tr><th>Correo</th><th>Usados hoy</th><th>En curso</th><th>Límite de hoy</th><th>Disponibles</th><th>Acción</th></tr></thead>
+              <tbody id="adminCreditsTable"><tr><td colspan="6" style="color:var(--text2)">Carga el panel para ver el uso de hoy.</td></tr></tbody>
             </table>
           </div>
         </div>
         <div class="card" style="margin-bottom:18px">
           <div class="card-title">Cuentas registradas</div>
           <div style="overflow-x:auto">
-            <table class="history-table"><thead><tr><th>Nombre</th><th>Correo</th><th>Registro</th><th>Último acceso</th><th>Recuperación</th><th>Acceso</th></tr></thead>
-              <tbody id="adminUsersTable"><tr><td colspan="6" style="color:var(--text2)">Carga el panel para ver las cuentas.</td></tr></tbody>
+            <table class="history-table"><thead><tr><th>Nombre</th><th>Correo</th><th>Registro</th><th>Último acceso</th><th>Completados</th><th>Fallidos</th><th>Cancelados</th><th>Recuperación</th><th>Acceso</th></tr></thead>
+              <tbody id="adminUsersTable"><tr><td colspan="9" style="color:var(--text2)">Carga el panel para ver las cuentas.</td></tr></tbody>
             </table>
           </div>
+          <p class="page-sub" style="margin-top:12px">Los trabajos completados usan el historial guardado. Los errores y cancelaciones empezarán a contarse desde que se publique este cambio.</p>
         </div>
         <div class="card">
           <div class="card-title">Registro de errores recientes</div>
@@ -985,6 +1006,14 @@
             </table>
           </div>
           <p class="page-sub" style="margin-top:12px">El registro guarda mensajes técnicos breves y no guarda contraseñas ni el contenido de los trabajos.</p>
+        </div>
+        <div class="card" style="margin-top:18px">
+          <div class="card-title">Dudas, sugerencias y quejas</div>
+          <div style="overflow-x:auto">
+            <table class="history-table"><thead><tr><th>Fecha</th><th>Usuario</th><th>Tipo</th><th>Mensaje</th><th>Estado</th></tr></thead>
+              <tbody id="adminCommentsTable"><tr><td colspan="5" style="color:var(--text2)">Carga el panel para ver los comentarios.</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -1253,17 +1282,49 @@ async function loadAdminCreditSettings() {
   const data = await authenticatedApi('/api/admin/credits');
   document.getElementById('adminDailyCreditLimit').value = String(data.limit);
   const status = document.getElementById('adminCreditsStatus');
-  status.textContent = `Límite activo: ${data.limit} por usuario hoy.`;
+  status.textContent = `Límite general: ${data.limit}. Puedes fijar un límite distinto por cuenta; tu cuenta administradora no tiene límite interno.`;
   const body = document.getElementById('adminCreditsTable');
   body.replaceChildren();
   for (const usage of data.users || []) {
     const row = document.createElement('tr');
-    for (const value of [usage.email || usage.uid, String(usage.used || 0), String(usage.pending || 0), String(usage.remaining || 0)]) {
+    for (const value of [usage.email || usage.uid, String(usage.used || 0), String(usage.pending || 0)]) {
       const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell);
     }
+    const limitCell = document.createElement('td');
+    const limitInput = document.createElement('input');
+    limitInput.type = 'number'; limitInput.min = '0'; limitInput.max = '50'; limitInput.step = '1'; limitInput.className = 'form-input';
+    limitInput.placeholder = usage.unlimited ? 'Sin límite' : `General: ${usage.globalLimit}`;
+    limitInput.value = usage.customLimit ? String(usage.limit) : '';
+    limitInput.disabled = usage.unlimited;
+    limitCell.appendChild(limitInput); row.appendChild(limitCell);
+    const remainingCell = document.createElement('td');
+    remainingCell.textContent = usage.unlimited ? 'Sin límite interno' : String(usage.remaining || 0);
+    row.appendChild(remainingCell);
+    const actionCell = document.createElement('td');
+    const saveButton = document.createElement('button'); saveButton.type = 'button'; saveButton.className = 'btn btn-outline';
+    saveButton.textContent = 'Guardar'; saveButton.disabled = usage.unlimited;
+    saveButton.addEventListener('click', () => void saveUserCreditLimit(usage.uid, limitInput.value));
+    actionCell.appendChild(saveButton); row.appendChild(actionCell);
     body.appendChild(row);
   }
-  if (!body.children.length) body.innerHTML = '<tr><td colspan="4">Todavía no hay consumo hoy.</td></tr>';
+  if (!body.children.length) body.innerHTML = '<tr><td colspan="6">Todavía no hay cuentas registradas.</td></tr>';
+  return data;
+}
+
+async function saveUserCreditLimit(uid, rawLimit) {
+  if (!currentUser?.isAdmin || !uid) return;
+  const limit = rawLimit.trim() === '' ? null : Number(rawLimit);
+  if (limit !== null && (!Number.isInteger(limit) || limit < 0 || limit > 50)) {
+    showToast('Escribe un límite entero de 0 a 50; déjalo vacío para usar el límite general.', 'error');
+    return;
+  }
+  try {
+    await authenticatedApi('/api/admin/credits', { method: 'PUT', body: JSON.stringify({ uid, limit }) });
+    showToast(limit === null ? 'Se restauró el límite general para esta cuenta.' : 'Límite individual actualizado.', 'success');
+    await loadAdminCreditSettings();
+  } catch (error) {
+    showToast(error.message, 'error');
+  }
 }
 
 async function saveAdminCreditLimit() {
@@ -1322,8 +1383,10 @@ async function loadAdminPanel() {
   if (!currentUser?.isAdmin) return;
   const usersBody = document.getElementById('adminUsersTable');
   const errorsBody = document.getElementById('adminErrorsTable');
-  usersBody.innerHTML = '<tr><td colspan="6">Cargando cuentas…</td></tr>';
+  const commentsBody = document.getElementById('adminCommentsTable');
+  usersBody.innerHTML = '<tr><td colspan="9">Cargando cuentas…</td></tr>';
   errorsBody.innerHTML = '<tr><td colspan="4">Cargando errores…</td></tr>';
+  commentsBody.innerHTML = '<tr><td colspan="5">Cargando comentarios…</td></tr>';
   try {
     const [usersSnapshot, errorsSnapshot, accessSnapshot] = await Promise.all([
       firebaseDb.collection('adminUsers').get(),
@@ -1344,11 +1407,22 @@ async function loadAdminPanel() {
     document.getElementById('adminErrorsCount').textContent = String(errors.length);
     document.getElementById('adminBannedCount').textContent = String([...accessByUid.values()].filter(access => access.banned === true).length);
 
+    let generationStatsByUid = new Map();
+    try {
+      const creditData = await loadAdminCreditSettings();
+      generationStatsByUid = new Map((creditData.generationStats || []).map(stats => [stats.uid, stats]));
+    } catch (creditError) {
+      document.getElementById('adminCreditsStatus').textContent = creditError.message;
+      document.getElementById('adminCreditsTable').innerHTML = '<tr><td colspan="6">No se pudo consultar el control de créditos.</td></tr>';
+    }
+
     usersBody.replaceChildren();
     users.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     for (const user of users) {
       const row = document.createElement('tr');
-      for (const value of [user.nombre || '—', user.email || '—', dateForAdmin(user.createdAt), dateForAdmin(user.lastSeenAt)]) {
+      const stats = generationStatsByUid.get(user.id) || {};
+      const completed = Math.max(Number(user.workCount) || 0, Number(stats.completed) || 0);
+      for (const value of [user.nombre || '—', user.email || '—', dateForAdmin(user.createdAt), dateForAdmin(user.lastSeenAt), String(completed), String(Number(stats.failed) || 0), String(Number(stats.cancelled) || 0)]) {
         const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell);
       }
       const actionCell = document.createElement('td');
@@ -1365,7 +1439,7 @@ async function loadAdminPanel() {
       accessButton.addEventListener('click', () => void setUserBan(user.id, user.email, !banned));
       accessCell.appendChild(accessButton); row.appendChild(accessCell); usersBody.appendChild(row);
     }
-    if (!users.length) usersBody.innerHTML = '<tr><td colspan="6">No hay cuentas registradas.</td></tr>';
+    if (!users.length) usersBody.innerHTML = '<tr><td colspan="9">No hay cuentas registradas.</td></tr>';
 
     errorsBody.replaceChildren();
     for (const doc of errors) {
@@ -1376,16 +1450,48 @@ async function loadAdminPanel() {
       errorsBody.appendChild(row);
     }
     if (!errors.length) errorsBody.innerHTML = '<tr><td colspan="4">Sin errores registrados.</td></tr>';
-    try { await loadAdminCreditSettings(); }
-    catch (creditError) {
-      document.getElementById('adminCreditsStatus').textContent = creditError.message;
-      document.getElementById('adminCreditsTable').innerHTML = '<tr><td colspan="4">No se pudo consultar el control de créditos.</td></tr>';
+    try {
+      const commentsSnapshot = await firebaseDb.collection('comments').orderBy('createdAt', 'desc').limit(100).get();
+      commentsBody.replaceChildren();
+      for (const doc of commentsSnapshot.docs) {
+        const item = doc.data(); const row = document.createElement('tr');
+        for (const value of [dateForAdmin(item.createdAt), item.email || item.uid || '—', item.type || '—', item.message || '']) {
+          const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell);
+        }
+        const statusCell = document.createElement('td');
+        const statusSelect = document.createElement('select'); statusSelect.className = 'form-input';
+        for (const [value, label] of [['nuevo', 'Nuevo'], ['revisado', 'Revisado'], ['resuelto', 'Resuelto']]) {
+          const option = document.createElement('option'); option.value = value; option.textContent = label; statusSelect.appendChild(option);
+        }
+        statusSelect.value = ['nuevo', 'revisado', 'resuelto'].includes(item.status) ? item.status : 'nuevo';
+        statusSelect.addEventListener('change', () => void setCommentStatus(doc.id, statusSelect.value));
+        statusCell.appendChild(statusSelect); row.appendChild(statusCell); commentsBody.appendChild(row);
+      }
+      if (!commentsSnapshot.size) commentsBody.innerHTML = '<tr><td colspan="5">Todavía no hay comentarios.</td></tr>';
+    } catch (commentsError) {
+      commentsBody.innerHTML = '<tr><td colspan="5">No se pudieron cargar los comentarios. Revisa las reglas de Firestore.</td></tr>';
+      logAppError('admin-comments-load', commentsError);
     }
   } catch (error) {
     logAppError('admin-panel-load', error);
-    usersBody.innerHTML = '<tr><td colspan="6">No se pudieron leer las cuentas. Revisa las reglas de Firestore.</td></tr>';
+    usersBody.innerHTML = '<tr><td colspan="9">No se pudieron leer las cuentas. Revisa las reglas de Firestore.</td></tr>';
     errorsBody.innerHTML = '<tr><td colspan="4">No se pudo leer el registro de errores. Revisa las reglas de Firestore.</td></tr>';
     showToast('No se pudo cargar el panel de administración.', 'error');
+  }
+}
+
+async function setCommentStatus(commentId, status) {
+  if (!currentUser?.isAdmin || !commentId || !['nuevo', 'revisado', 'resuelto'].includes(status)) return;
+  try {
+    await firebaseDb.collection('comments').doc(commentId).update({
+      status,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    showToast('Estado del comentario actualizado.', 'success');
+  } catch (error) {
+    logAppError('admin-comment-status', error);
+    showToast(`No se pudo actualizar el comentario: ${error.message}`, 'error');
+    await loadAdminPanel();
   }
 }
 
@@ -2007,7 +2113,7 @@ function mostrarBorradorIncompleto(motivo) {
   const aviso = document.createElement('div');
   aviso.setAttribute('role', 'status');
   aviso.style.cssText = 'margin:0 0 18px;padding:12px 14px;border:1px solid #d8a740;border-radius:8px;color:var(--text);background:rgba(216,167,64,.10)';
-  aviso.textContent = `Borrador incompleto: ${motivo} El texto se conserva solo para revisarlo; no se puede descargar como trabajo terminado.`;
+  aviso.textContent = `Borrador incompleto: ${motivo} El texto se conserva, pero aún no está listo para entregar. Usa “Continuar desde el borrador guardado” para intentar completar lo que falta; si no se logra, puedes iniciar una nueva generación cuando esta termine.`;
   preview.appendChild(aviso);
   const resume = document.createElement('button');
   resume.type = 'button';
@@ -2056,7 +2162,9 @@ async function generarTrabajo(continuarBorrador = false) {
   try {
     const credit = await startCreditReservation();
     creditReservationId = credit.reservationId;
-    showToast(`Reserva iniciada: te quedan ${credit.remaining} de ${credit.limit} créditos para hoy después de este intento. Si termina o cancelas, contará 1; un error técnico no cuenta.`, 'info');
+    showToast(credit.unlimited
+      ? 'Tu cuenta administradora no tiene límite diario interno. Siguen aplicando los límites del proveedor.'
+      : `Reserva iniciada: te quedan ${credit.remaining} de ${credit.limit} créditos para hoy después de este intento. Si termina o cancelas, contará 1; un error técnico no cuenta.`, 'info');
   } catch (creditError) {
     generationInProgress = false;
     showToast(`No se pudo comprobar el límite diario de créditos: ${creditError.message}`, 'error');
@@ -2105,10 +2213,10 @@ async function generarTrabajo(continuarBorrador = false) {
       const timeLabel = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
       const sinFragmentos = Date.now() - lastDeltaAt;
       generationStatus.textContent = generationStatusOverride || (generatedContent && sinFragmentos > 20000
-        ? `Esperando el siguiente fragmento del proveedor… ${timeLabel}. El borrador se conserva.`
+        ? `El proveedor está tardando… ${timeLabel}. El borrador se conserva. Mantén la página abierta y no inicies otro trabajo.`
         : generatedContent
           ? `Generando… ${timeLabel} · el texto aparece conforme llega.`
-          : `Esperando respuesta del proveedor… ${timeLabel}`);
+          : `Esperando respuesta del proveedor… ${timeLabel}. Mantén la página abierta; no vuelvas a generar todavía.`);
       lastStatusAt = Date.now();
     }
     if (!generationInProgress || generationPaused || !generatedContent ||
@@ -2450,7 +2558,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
       document.getElementById('generationControls').classList.remove('visible');
       if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
       const borradorPreservado = mostrarBorradorIncompleto('la generación fue cancelada por el usuario.');
-    const mensajeCancelacion = borradorPreservado ? 'Generación cancelada. El borrador se conserva y puedes continuar desde ahí.' : 'Generación cancelada.';
+        const mensajeCancelacion = borradorPreservado ? 'Generación cancelada. El borrador se conserva; pulsa “Continuar desde el borrador guardado” para completar lo que falta.' : 'Generación cancelada. La solicitud se detuvo; cuando desaparezca este aviso, puedes volver a intentarlo.';
     showToast(cancelCreditSettled ? mensajeCancelacion + ' Se contó 1 crédito.' : mensajeCancelacion + ' No se pudo actualizar el contador; contacta al administrador antes de generar de nuevo.', cancelCreditSettled ? 'info' : 'error');
       return;
     }
@@ -2469,8 +2577,8 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
     const mensaje = e instanceof TypeError
       ? 'No se pudo conectar con el servicio de IA. Revisa que el servidor local siga abierto en PowerShell.'
       : borradorPreservado
-        ? `El borrador quedó guardado. Pulsa “Continuar desde el borrador guardado” para completar lo que falta. Detalle: ${e.message}`
-        : `No se pudo completar el trabajo: ${e.message}`;
+        ? `El borrador quedó guardado. Pulsa “Continuar desde el borrador guardado” para completar lo que falta. No inicies otro trabajo mientras continúas este. Detalle: ${e.message}`
+        : `No se pudo completar el trabajo: ${e.message}. Si fue un error técnico, no debería consumir crédito; espera a que termine este intento y vuelve a probar.`;
     showToast(mensaje, 'error');
     return;
   }
@@ -2500,8 +2608,8 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
   if (advertenciaExtensionCorta) avisosGeneracion.push(`quedó corto de lo aproximado (${palabrasGeneradas} palabras)`);
   if (advertenciaCitas) avisosGeneracion.push(advertenciaCitas);
   const mensajeGeneracion = avisosGeneracion.length
-    ? `Trabajo generado. ${avisosGeneracion.join(' ')} Revisa el contenido antes de descargar.`
-    : 'Trabajo generado ✓ Revísalo antes de descargar';
+    ? `Trabajo generado. ${avisosGeneracion.join(' ')} Revisa, corrige y verifica las fuentes antes de entregarlo.`
+    : 'Trabajo generado ✓ Revísalo, verifica las fuentes y ajústalo a tus ideas antes de entregarlo.';
   const mensajeFinal = `${guardadoEnCuenta ? mensajeGeneracion : `${mensajeGeneracion} No se guardó en tu cuenta; descárgalo para conservarlo.`}${completionCreditSettled ? '' : ' El trabajo terminó, pero no se pudo actualizar el contador de créditos. Contacta al administrador antes de volver a generar.'}`;
   showToast(mensajeFinal, completionCreditSettled && guardadoEnCuenta && !advertenciaExtensionCorta && !advertenciaCitas ? 'success' : 'info');
 }
@@ -3173,11 +3281,32 @@ async function guardarPerfil() {
 
 
 // ── COMMENTS ───────────────────────────────────────────
-function enviarComentario() {
-  const txt = document.getElementById('textoComentario').value;
-  if (!txt) { showToast('Escribe tu mensaje', 'error'); return; }
-  document.getElementById('textoComentario').value = '';
-  showToast('Comentario enviado ✓ Te responderemos pronto', 'success');
+async function enviarComentario() {
+  const input = document.getElementById('textoComentario');
+  const button = document.getElementById('commentSendBtn');
+  const message = input.value.trim();
+  const authUser = firebaseAuth.currentUser;
+  if (!message) { showToast('Escribe tu mensaje antes de enviarlo.', 'error'); return; }
+  if (message.length > 5000) { showToast('El mensaje debe tener 5,000 caracteres o menos.', 'error'); return; }
+  if (!authUser) { showToast('Inicia sesión para enviar un comentario.', 'error'); return; }
+  button.disabled = true;
+  try {
+    await firebaseDb.collection('comments').add({
+      uid: authUser.uid,
+      email: authUser.email || '',
+      type: document.getElementById('tipoComentario').value,
+      message,
+      status: 'nuevo',
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    input.value = '';
+    showToast('Comentario enviado. El administrador podrá revisarlo en su panel.', 'success');
+  } catch (error) {
+    logAppError('comment-submit', error);
+    showToast(`No se pudo enviar el comentario: ${error.message}`, 'error');
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // ── TOAST ──────────────────────────────────────────────

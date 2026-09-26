@@ -71,6 +71,9 @@ async function settleGenerationCredit(firebaseUser, reservationId, outcome) {
     const settled = { ...(record.settled || {}) };
     if (Object.prototype.hasOwnProperty.call(settled, reservationId)) return { settled: true, used: record.used || 0 };
     if (!Object.prototype.hasOwnProperty.call(pending, reservationId)) return { settled: false, used: record.used || 0 };
+    const statsRef = adminDb.collection('generationStats').doc(firebaseUser.uid);
+    const statsSnapshot = await tx.get(statsRef);
+    const stats = statsSnapshot.data() || {};
     delete pending[reservationId];
     settled[reservationId] = outcome;
     const keys = Object.keys(settled);
@@ -81,6 +84,15 @@ async function settleGenerationCredit(firebaseUser, reservationId, outcome) {
       pending, settled, used,
       updatedAt: FieldValue.serverTimestamp()
     });
+    tx.set(statsRef, {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email || record.email || '',
+      total: (Number(stats.total) || 0) + 1,
+      completed: (Number(stats.completed) || 0) + (outcome === 'completed' ? 1 : 0),
+      failed: (Number(stats.failed) || 0) + (outcome === 'error' ? 1 : 0),
+      cancelled: (Number(stats.cancelled) || 0) + (outcome === 'cancelled' ? 1 : 0),
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
     return { settled: true, used };
   });
 }
@@ -188,21 +200,48 @@ const server = http.createServer(async (req, res) => {
       const settingsRef = adminDb.collection('appSettings').doc('dailyCredits');
       if (req.method === 'PUT') {
         const body = await readJson(req, 2048);
-        const limit = Number(body.limit);
-        if (!Number.isInteger(limit) || limit < 0 || limit > 50) return send(res, 400, { error: 'El límite debe ser un número entero entre 0 y 50.' });
-        await settingsRef.set({ limit, updatedAt: FieldValue.serverTimestamp(), updatedBy: firebaseUser.uid }, { merge: true });
+        if (typeof body.uid === 'string' && body.uid) {
+          if (body.uid === ADMIN_UID) return send(res, 400, { error: 'La cuenta administradora está exenta del límite interno.' });
+          const userLimitRef = adminDb.collection('userCreditLimits').doc(body.uid);
+          if (body.limit === null) {
+            await userLimitRef.delete();
+          } else {
+            const userLimit = Number(body.limit);
+            if (!Number.isInteger(userLimit) || userLimit < 0 || userLimit > 50) return send(res, 400, { error: 'El límite individual debe ser un entero entre 0 y 50, o vacío para usar el límite general.' });
+            await userLimitRef.set({ uid: body.uid, limit: userLimit, updatedAt: FieldValue.serverTimestamp(), updatedBy: firebaseUser.uid });
+          }
+        } else {
+          const limit = Number(body.limit);
+          if (!Number.isInteger(limit) || limit < 0 || limit > 50) return send(res, 400, { error: 'El límite debe ser un número entero entre 0 y 50.' });
+          await settingsRef.set({ limit, updatedAt: FieldValue.serverTimestamp(), updatedBy: firebaseUser.uid }, { merge: true });
+        }
       }
       const settings = await settingsRef.get();
-      const limit = Number.isInteger(settings.data()?.limit) ? settings.data().limit : DEFAULT_DAILY_CREDIT_LIMIT;
+      const globalLimit = Number.isInteger(settings.data()?.limit) ? settings.data().limit : DEFAULT_DAILY_CREDIT_LIMIT;
       const day = utcDayKey();
-      const usageSnapshot = await adminDb.collection('creditUsage').where('day', '==', day).get();
-      const users = usageSnapshot.docs.map(doc => {
-        const data = doc.data();
+      const [usageSnapshot, statsSnapshot, limitsSnapshot, accountsSnapshot] = await Promise.all([
+        adminDb.collection('creditUsage').where('day', '==', day).get(),
+        adminDb.collection('generationStats').get(),
+        adminDb.collection('userCreditLimits').get(),
+        adminDb.collection('adminUsers').get()
+      ]);
+      const usageByUid = new Map(usageSnapshot.docs.map(doc => [doc.data().uid, doc.data()]));
+      const limitsByUid = new Map(limitsSnapshot.docs.map(doc => [doc.id, doc.data()]));
+      const accountsByUid = new Map(accountsSnapshot.docs.map(doc => [doc.id, doc.data()]));
+      const allUids = new Set([...usageByUid.keys(), ...accountsByUid.keys()]);
+      const users = [...allUids].map(uid => {
+        const data = usageByUid.get(uid) || {};
+        const account = accountsByUid.get(uid) || {};
         const pending = Object.keys(data.pending || {}).length;
         const used = Math.max(0, Number(data.used) || 0);
-        return { uid: data.uid, email: data.email || '', used, pending, remaining: Math.max(0, limit - used - pending) };
+        const override = limitsByUid.get(uid);
+        const customLimit = Number.isInteger(override?.limit);
+        const limit = customLimit ? override.limit : globalLimit;
+        const unlimited = Boolean(ADMIN_UID && uid === ADMIN_UID);
+        return { uid, email: data.email || account.email || '', used, pending, customLimit, limit, globalLimit, unlimited, remaining: unlimited ? null : Math.max(0, limit - used - pending) };
       }).sort((a, b) => a.email.localeCompare(b.email));
-      return send(res, 200, { limit, day, users });
+      const generationStats = statsSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+      return send(res, 200, { limit: globalLimit, day, users, generationStats });
     } catch (error) {
       console.error('Admin credit settings error:', error.message);
       return send(res, 500, { error: 'No se pudieron guardar o leer los límites diarios de créditos.' });
@@ -222,18 +261,21 @@ const server = http.createServer(async (req, res) => {
       const day = utcDayKey();
       const usageRef = adminDb.collection('creditUsage').doc(`${firebaseUser.uid}_${day}`);
       const settingsRef = adminDb.collection('appSettings').doc('dailyCredits');
+      const userLimitRef = adminDb.collection('userCreditLimits').doc(firebaseUser.uid);
       const reservationId = `${day}_${crypto.randomUUID()}`;
       const now = Date.now();
+      const unlimited = Boolean(ADMIN_UID && firebaseUser.uid === ADMIN_UID);
       const result = await adminDb.runTransaction(async tx => {
-        const [settingsSnapshot, usageSnapshot] = await Promise.all([tx.get(settingsRef), tx.get(usageRef)]);
-        const limit = Number.isInteger(settingsSnapshot.data()?.limit) ? settingsSnapshot.data().limit : DEFAULT_DAILY_CREDIT_LIMIT;
+        const [settingsSnapshot, usageSnapshot, userLimitSnapshot] = await Promise.all([tx.get(settingsRef), tx.get(usageRef), tx.get(userLimitRef)]);
+        const globalLimit = Number.isInteger(settingsSnapshot.data()?.limit) ? settingsSnapshot.data().limit : DEFAULT_DAILY_CREDIT_LIMIT;
+        const limit = Number.isInteger(userLimitSnapshot.data()?.limit) ? userLimitSnapshot.data().limit : globalLimit;
         const data = usageSnapshot.data() || {};
         const pending = { ...(data.pending || {}) };
         for (const [id, createdAt] of Object.entries(pending)) {
           if (!Number.isFinite(Number(createdAt)) || now - Number(createdAt) > 2 * 60 * 60 * 1000) delete pending[id];
         }
         const used = Math.max(0, Number(data.used) || 0);
-        if (used + Object.keys(pending).length >= limit) {
+        if (!unlimited && used + Object.keys(pending).length >= limit) {
           throw Object.assign(new Error('Llegaste al límite diario de créditos. Intenta mañana o consulta al administrador.'), { status: 429, creditLimit: limit, used });
         }
         pending[reservationId] = now;
@@ -241,11 +283,11 @@ const server = http.createServer(async (req, res) => {
           uid: firebaseUser.uid, email: firebaseUser.email || '', day, used, pending,
           settled: data.settled || {}, updatedAt: FieldValue.serverTimestamp()
         });
-        return { limit, used, pending: Object.keys(pending).length };
+        return { limit, globalLimit, used, pending: Object.keys(pending).length, unlimited };
       });
       return send(res, 200, {
-        reservationId, limit: result.limit, used: result.used,
-        remaining: Math.max(0, result.limit - result.used - result.pending)
+        reservationId, limit: result.limit, globalLimit: result.globalLimit, used: result.used, unlimited: result.unlimited,
+        remaining: result.unlimited ? null : Math.max(0, result.limit - result.used - result.pending)
       });
     } catch (error) {
       const status = error.status || 500;
@@ -284,15 +326,27 @@ const server = http.createServer(async (req, res) => {
   if (!process.env.OPENROUTER_API_KEY) {
     return send(res, 503, { error: 'Falta configurar OPENROUTER_API_KEY en el servidor.' });
   }
-  console.log('Solicitud de generacion recibida. Validando sesion y estado de cuenta...');
+  const requestId = crypto.randomUUID().slice(0, 8);
+  const requestStartedAt = Date.now();
+  const logGenerationStage = (stage, detail = '') => {
+    const suffix = detail ? ` ${detail}` : '';
+    console.log(`[generation:${requestId}] ${stage} +${Date.now() - requestStartedAt}ms${suffix}`);
+  };
+  logGenerationStage('request_received');
   const firebaseUser = await getFirebaseUser(req);
-  if (!firebaseUser) return send(res, 401, { error: 'Inicia sesión para generar un trabajo.' });
+  if (!firebaseUser) {
+    logGenerationStage('authentication_failed');
+    return send(res, 401, { error: 'Inicia sesión para generar un trabajo.' });
+  }
+  logGenerationStage('authentication_ok');
   try {
     if (await getAccountBanStatus(firebaseUser)) {
+      logGenerationStage('account_suspended');
       return send(res, 403, { error: 'Esta cuenta está suspendida. Contacta con administración.' });
     }
+    logGenerationStage('account_access_ok');
   } catch (error) {
-    console.error('Account access check failed:', error.message);
+    logGenerationStage('account_check_failed', error.message);
     return send(res, 503, { error: 'La verificación de la cuenta tardó demasiado. Intenta de nuevo.' });
   }
 
@@ -311,12 +365,13 @@ const server = http.createServer(async (req, res) => {
     }
     const input = JSON.parse(raw || '{}');
     if (typeof input.prompt !== 'string' || !input.prompt.trim()) {
+      logGenerationStage('invalid_request_body');
       return send(res, 400, { error: 'Falta el contenido del trabajo.' });
     }
     const configuredModels = [MODEL, ...FALLBACK_MODELS];
     const fallbackAttempt = Math.max(0, Math.floor(Number(input.fallbackAttempt) || 0)) % configuredModels.length;
     const modelChoices = [...configuredModels.slice(fallbackAttempt), ...configuredModels.slice(0, fallbackAttempt)];
-    console.log(`Solicitud de generacion recibida. Intento ${fallbackAttempt + 1}; modelos: ${modelChoices.join(' -> ')}. Consultando OpenRouter...`);
+    logGenerationStage('provider_request_started', `attempt=${fallbackAttempt + 1} models=${modelChoices.join(',')}`);
     const requestedTokens = Number(input.maxTokens || 6000);
     const maxTokens = Math.min(16000, Math.max(1000, Math.floor(requestedTokens)));
     const upstreamController = new AbortController();
@@ -354,12 +409,13 @@ const server = http.createServer(async (req, res) => {
       })
     });
     clearTimeout(upstreamConnectTimeout);
+    logGenerationStage('provider_headers_received', `status=${upstream.status}`);
     if (!upstream.ok) {
       clearTimeout(upstreamTimeout);
       clearTimeout(upstreamTotalTimeout);
       const data = await upstream.json().catch(() => ({}));
       const upstreamMessage = data?.error?.message || 'Sin detalle del proveedor';
-      console.error('OpenRouter API error:', upstream.status, upstreamMessage);
+      logGenerationStage('provider_http_error', `status=${upstream.status} message=${upstreamMessage}`);
       const status = upstream.status === 429 ? 429 : 502;
       return send(res, status, { error: `OpenRouter respondio ${upstream.status}: ${upstreamMessage}` });
     }
@@ -394,9 +450,14 @@ const server = http.createServer(async (req, res) => {
     const decoder = new TextDecoder();
     let pending = '';
     let usedModel = '';
+    let firstChunkLogged = false;
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+      if (!firstChunkLogged) {
+        firstChunkLogged = true;
+        logGenerationStage('first_provider_chunk');
+      }
       resetIdleTimeout();
       const chunk = decoder.decode(value, { stream: true });
       res.write(chunk);
@@ -417,7 +478,7 @@ const server = http.createServer(async (req, res) => {
     clearTimeout(upstreamConnectTimeout);
     clearInterval(streamHeartbeat);
     if (!res.writableEnded) res.end();
-    console.log(`Generacion completada en ${Math.round((Date.now() - startedAt) / 1000)} segundos. Modelo usado: ${usedModel || 'no informado'}.`);
+    logGenerationStage('generation_completed', `model=${usedModel || 'unknown'}`);
   } catch (error) {
     clearTimeout(upstreamTimeout);
     clearTimeout(upstreamTotalTimeout);
@@ -426,7 +487,7 @@ const server = http.createServer(async (req, res) => {
     const cause = error.cause;
     const diagnostic = `${error.name || ''} ${error.message || ''} ${cause?.name || ''} ${cause?.message || ''}`;
     const timedOut = /timeout|timed out|aborted due to timeout/i.test(diagnostic);
-    console.error('Generation server error:', diagnostic, cause?.code ? `[${cause.code}]` : '');
+    logGenerationStage('generation_failed', `${diagnostic}${cause?.code ? ` [${cause.code}]` : ''}`);
     const message = timedOut ? 'OpenRouter dejó de responder temporalmente. La aplicación intentará continuar desde el borrador recibido.' : 'No se pudo conectar con OpenRouter. La aplicación puede reintentar sin borrar el borrador.';
     if (res.headersSent && !res.writableEnded && !res.destroyed) {
       res.write(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`);
@@ -439,13 +500,4 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`Snow Academico listo en http://${HOST}:${PORT}. Modelo: ${MODEL}`);
-});
-
-server.on('request', (req, res) => {
-    if (req.method !== 'POST' || req.url !== '/api/generate') return;
-    const requestId = crypto.randomUUID().slice(0, 8);
-  const startedAt = Date.now();
-  console.log(`[generation:${requestId}] received`);
-  res.on('finish', () => console.log(`[generation:${requestId}] finished status=${res.statusCode} elapsedMs=${Date.now() - startedAt}`));
-  res.on('close', () => { if (!res.writableEnded) console.warn(`[generation:${requestId}] client_closed elapsedMs=${Date.now() - startedAt}`); });
 });

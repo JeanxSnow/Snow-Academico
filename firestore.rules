@@ -54,6 +54,27 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Dudas y comentarios del usuario: solo su autor puede crearlos; el administrador puede revisarlos y actualizar su estado.
+    match /comments/{commentId} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'type', 'message', 'status', 'createdAt'])
+        && request.resource.data.type is string
+        && request.resource.data.type.size() <= 80
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.message.size() <= 5000
+        && request.resource.data.status == 'nuevo'
+        && request.resource.data.createdAt == request.time;
+      allow get, list: if isAdmin();
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status in ['nuevo', 'revisado', 'resuelto']
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+
     // El usuario puede consultar solo su estado; solo el administrador puede suspender o reactivar.
     match /userAccess/{userId} {
       allow get: if isAdmin() || (signedIn() && request.auth.uid == userId);
