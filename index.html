@@ -1742,6 +1742,19 @@ BORRADOR YA RECIBIDO (contexto, no volver a emitir):
 ${contexto}`;
 }
 
+function unirExtensionEnDesarrollo(base, fragmento) {
+  const original = String(base || '').trim();
+  let ampliacion = limpiarSalidaModelo(fragmento).trim();
+  if (!original || !ampliacion) return original || ampliacion;
+  ampliacion = ampliacion
+    .replace(/^\[TITULO_SECCION:\s*Desarrollo\s*\]\s*/i, '')
+    .replace(/^\[TITULO_SECCION:\s*.+?\]\s*$/gim, '')
+    .replace(/^\[SUBTITULO:\s*/gim, '[SUBTITULO: ');
+  const finalInicio = original.search(/^\[TITULO_SECCION:\s*(?:Conclusi[oó]n|Referencias|Bibliograf[ií]a)\s*\]\s*$/im);
+  if (finalInicio < 0) return `${original}\n\n[PARRAFO]\n${ampliacion}`;
+  return `${original.slice(0, finalInicio).trimEnd()}\n\n[PARRAFO]\n${ampliacion}\n\n${original.slice(finalInicio).trimStart()}`;
+}
+
 function crearPromptReparacionEstructural(promptOriginal, borrador, seccionesFaltantes) {
   const contexto = limpiarSalidaModelo(borrador);
   const faltantes = [...new Set(seccionesFaltantes.split(/,\s*/).map(texto => texto.trim()).filter(Boolean))];
@@ -2216,7 +2229,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
     const contarPalabrasTrabajo = texto => String(texto || '').trim().split(/\s+/).filter(Boolean).length;
     const programarExtensionSiCorta = () => {
       const palabrasActuales = contarPalabrasTrabajo(generatedContent);
-      const minimoPalabras = paginasObjetivo * 220;
+      const minimoPalabras = paginasObjetivo * 300;
       if (palabrasActuales >= minimoPalabras || continuacionesPorExtension >= maxContinuacionesPorExtension) return false;
       continuacionesPorExtension += 1;
       continuacionPorExtension = true;
@@ -2251,15 +2264,15 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         generationStatus.textContent = generationStatusOverride;
         const solicitud = reparacionEstructural
           ? crearPromptReparacionEstructural(lastGenerationPrompt || promptBase, generatedContent, reparacionEstructural)
-          : (recuperando || continuarBorrador || continuacionPorExtension
+        : (continuacionPorExtension
+          ? `${lastGenerationPrompt || promptBase}\n\nAMPLÍA EL DESARROLLO DEL MISMO TRABAJO. El borrador completo está abajo solo como contexto. Devuelve únicamente entre 2 y 4 párrafos nuevos, sustantivos y específicos para el tema, bajo [TITULO_SECCION: Desarrollo] y marcadores [PARRAFO]. No repitas ni resumas el contenido existente. No escribas introducción, objetivos, conclusión, referencias, portada ni texto después de la bibliografía. Conserva las citas existentes; no agregues fuentes, cifras ni afirmaciones factuales nuevas que no puedas respaldar.\n\nBORRADOR COMPLETO (no volver a emitir):\n${limpiarSalidaModelo(generatedContent)}`
+          : (recuperando || continuarBorrador
             ? crearPromptContinuacion(
                 lastGenerationPrompt || promptBase,
                 generatedContent,
-                continuacionPorExtension
-                  ? `El borrador tiene ${contarPalabrasTrabajo(generatedContent)} palabras; amplía únicamente las partes analíticas del desarrollo para acercarte a ${paginasObjetivo * 300} palabras totales. Añade contenido nuevo pertinente, sin repetir ideas, crear secciones que contradigan la consigna ni inventar fuentes o cifras. Conserva intactas las secciones y referencias existentes.`
-                  : 'Retoma el mismo trabajo y completa solo lo que falta.'
+                'Retoma el mismo trabajo y completa solo lo que falta.'
               )
-            : promptMaestro);
+            : promptMaestro));
         // Evita que el navegador espere varios minutos si el servidor no llega
         // a devolver ni siquiera los encabezados HTTP de la solicitud.
         timeoutRespuestaServidor = setTimeout(() => {
@@ -2313,7 +2326,9 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
           }
           lastDeltaAt = Date.now();
           fragmentoDelIntento += delta;
-          generatedContent = unirFragmentoGenerado(baseAntesDelIntento, fragmentoDelIntento);
+          generatedContent = continuacionPorExtension
+            ? unirExtensionEnDesarrollo(baseAntesDelIntento, fragmentoDelIntento)
+            : unirFragmentoGenerado(baseAntesDelIntento, fragmentoDelIntento);
         });
         generatedContent = limpiarSalidaModelo(generatedContent);
         if (!generatedContent.trim()) throw new Error('El servicio no devolvió contenido.');
@@ -2396,7 +2411,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
     }
 
     palabrasGeneradas = generatedContent.trim().split(/\s+/).length;
-    if (palabrasGeneradas < paginasObjetivo * 220) {
+    if (palabrasGeneradas < paginasObjetivo * 300) {
       advertenciaExtensionCorta = true;
       console.warn(`La respuesta terminó correctamente, pero quedó por debajo de la extensión aproximada: ${palabrasGeneradas} palabras para ${paginasObjetivo} páginas.`);
     }
@@ -2452,25 +2467,25 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
   }
 
   clearTimeout(totalGenerationTimeout);
-  let completionCreditSettled = true;
-  try { await finishCreditReservation(creditReservationId, 'completed'); }
-  catch (creditError) {
-    completionCreditSettled = false;
-    logAppError('credit-settlement', creditError);
-  }
+  // La respuesta ya pasó validación: mostrarla y quitar el spinner antes de
+  // esperar a Firestore o al registro del crédito, que pueden tardar por red.
   clearInterval(paintTimer);
   generationInProgress = false; generationPaused = false; generationController = null;
-  if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
   document.getElementById('spinnerWrap').classList.remove('visible');
   document.getElementById('generationControls').classList.remove('visible');
-
-  // Renderizar con formato visual
   const formatted = formatearContenido(generatedContent);
   document.getElementById('previewWrap').innerHTML = formatted;
   document.getElementById('previewWrap').classList.add('visible');
   document.getElementById('previewActions').classList.add('visible');
+  let completionCreditSettled = true;
+  try { await promiseWithTimeout(finishCreditReservation(creditReservationId, 'completed'), 15000, 'El trabajo terminó, pero la confirmación del crédito está tardando.'); }
+  catch (creditError) {
+    completionCreditSettled = false;
+    logAppError('credit-settlement', creditError);
+  }
+  if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
   let guardadoEnCuenta = true;
-  try { await guardarTrabajoEnFirestore(); }
+  try { await promiseWithTimeout(guardarTrabajoEnFirestore(), 15000, 'La sincronización tardó demasiado. El trabajo sigue visible y puedes descargarlo.'); }
   catch (error) { guardadoEnCuenta = false; logAppError('work-save', error); console.warn('No se pudo sincronizar el trabajo:', error); }
   const avisosGeneracion = [];
   if (advertenciaExtensionCorta) avisosGeneracion.push(`quedó corto de lo aproximado (${palabrasGeneradas} palabras)`);
