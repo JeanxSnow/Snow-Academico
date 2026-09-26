@@ -1856,7 +1856,29 @@ async function readGenerationStream(response, onContent = () => {}) {
   return finishReason;
 }
 
-function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferencias = false, tipoTrabajo = 'Ensayo') {
+function normalizarEstructuraEnsayo(texto, tipoTrabajo = 'Ensayo') {
+  const contenido = String(texto || '').trim();
+  if (!/^ensayo$/i.test(tipoTrabajo) || /^\[TITULO_SECCION:/im.test(contenido)) return contenido;
+  const bloques = contenido.split(/\r?\n\s*\r?\n+/).map(b => b.trim()).filter(Boolean);
+  if (bloques.length < 3) return contenido;
+  const esReferencia = b => /^(?:[\p{Lu}][^\n]{0,160}\(\d{4}[a-z]?\)|https?:\/\/|doi\.org\/)/u.test(b);
+  let inicioReferencias = bloques.length;
+  while (inicioReferencias > 1 && esReferencia(bloques[inicioReferencias - 1])) inicioReferencias--;
+  const cuerpo = bloques.slice(0, inicioReferencias);
+  const referencias = bloques.slice(inicioReferencias);
+  if (cuerpo.length < 3) return contenido;
+  const limpiar = b => b.replace(/^\s*(?:introducci[oó]n|desarrollo|conclusi[oó]n|referencias|bibliograf[ií])\s*:?\s*/i, '').trim();
+  const desarrollo = cuerpo.slice(1, -1).map(b => '[PARRAFO]\n' + limpiar(b)).join('\n\n');
+  const partes = [
+    '[TITULO_SECCION: Introducción]\n[PARRAFO]\n' + limpiar(cuerpo[0]),
+    '[TITULO_SECCION: Desarrollo]\n' + desarrollo,
+    '[TITULO_SECCION: Conclusión]\n[PARRAFO]\n' + limpiar(cuerpo[cuerpo.length - 1])
+  ];
+  if (referencias.length) partes.push('[TITULO_SECCION: Referencias]\n' + referencias.map(b => '[PARRAFO]\n' + b).join('\n\n'));
+  return partes.join('\n\n');
+}
+
+
   const contenido = String(texto || '').trim();
   const normalizado = contenido.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const marcadores = [...contenido.matchAll(/^\[TITULO_SECCION:\s*(.+?)\]\s*$/gim)]
