@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -1011,6 +1011,8 @@ let workTypeManuallySelected = false;
 let currentFormat = 'word';
 let currentUser = null;
 let generatedContent = '';
+let draftExportMode = false;
+let draftIncompleteReason = '';
 let generationInProgress = false;
 let generationPaused = false;
 let generationController = null;
@@ -1587,7 +1589,8 @@ function updateConfig() {
   const negrita = document.getElementById('negrita').value;
   const normas = document.getElementById('normas').value;
   const paginasElegidas = document.getElementById('paginas').value;
-  const paginas = (typeof analisis !== 'undefined' && analisis.extensionExplicita) ? analisis.paginas : paginasElegidas;
+  const analisis = analizarIndicaciones(document.getElementById('instrucciones').value);
+  const paginas = analisis.extensionExplicita ? analisis.paginas : paginasElegidas;
   document.getElementById('cfgFuente').textContent = fuente + ' ' + tam;
   document.getElementById('cfgTitulo').textContent = tamT + 'pt, ' + (negrita.includes('Sí') ? 'negrita' : 'normal');
   document.getElementById('cfgNormas').textContent = normas.split(' ')[0] + ' ' + (normas.split(' ')[1] || '');
@@ -1739,6 +1742,18 @@ BORRADOR YA RECIBIDO (contexto, no volver a emitir):
 ${contexto}`;
 }
 
+function crearPromptReparacionEstructural(promptOriginal, borrador, seccionesFaltantes) {
+  const contexto = limpiarSalidaModelo(borrador);
+  const faltantes = [...new Set(seccionesFaltantes.split(/,\s*/).map(texto => texto.trim()).filter(Boolean))];
+  return `${promptOriginal}\n\nCOMPLETA SOLO LAS SECCIONES QUE FALTAN:
+El trabajo ya está redactado y el texto existente debe conservarse sin reescritura, resumen ni repetición. Devuelve únicamente las secciones indicadas abajo, con sus marcadores [TITULO_SECCION: nombre] y [PARRAFO]. No vuelvas a generar la introducción, objetivos ni desarrollo que ya aparecen en el borrador.
+Secciones pendientes: ${faltantes.join('; ')}.
+Si falta Referencias o Bibliografía, incluye referencias APA 7 solo para fuentes identificables y vinculadas con las citas existentes. No inventes datos bibliográficos; si una cita no permite identificar una fuente, no finjas que está verificada.
+
+BORRADOR COMPLETO PARA CONTEXTO (no lo repitas):
+${contexto}`;
+}
+
 function limpiarSalidaModelo(texto) {
   const patronesInternos = [
     /^\s*(?:user\s+)?safety\s*:\s*(?:safe|unsafe|high|medium|low)\s*$/i,
@@ -1749,12 +1764,13 @@ function limpiarSalidaModelo(texto) {
     /\bthe user (?:asks|requested|wants)\b/i,
     /\bwe need around \d+ words\b/i,
     /\b(?:drafting plan|word count target|let me think through|outline first)\b/i,
-    
+
   ];
   return String(texto || '')
     .split(/\r?\n/)
     .filter(linea => !patronesInternos.some(patron => patron.test(linea)))
     .join('\n')
+    .replace(/\[(?:PARGRAFO|PARAGRAFO|PÁRRAFO)\]/gi, '[PARRAFO]')
     .replace(/\n*\[(?:TITULO_SECCION|PARRAFO|SUBTITULO|REFER(?:ENCIA)?)(?::[^\]\r\n]*)?$/i, '')
     .trim();
 }
@@ -1859,34 +1875,34 @@ async function readGenerationStream(response, onContent = () => {}) {
 function normalizarEstructuraEnsayo(texto, tipoTrabajo = 'Ensayo') {
   const contenido = String(texto || '').trim();
   if (!/^ensayo$/i.test(tipoTrabajo) || /^\[TITULO_SECCION:/im.test(contenido)) return contenido;
-  const bloques = contenido.split(/\r?\n\s*\r?\n+/).map(b => b.trim()).filter(Boolean);
+  const bloques = contenido.split(/\n\s*\n+/).map(bloque => bloque.trim()).filter(Boolean);
   if (bloques.length < 3) return contenido;
-  const esReferencia = b => /^(?:[\p{Lu}][^\n]{0,160}\(\d{4}[a-z]?\)|https?:\/\/|doi\.org\/)/u.test(b);
-  let inicioReferencias = bloques.length;
-  while (inicioReferencias > 1 && esReferencia(bloques[inicioReferencias - 1])) inicioReferencias--;
-  const cuerpo = bloques.slice(0, inicioReferencias);
-  const referencias = bloques.slice(inicioReferencias);
+  let indiceReferencias = bloques.length;
+  const pareceReferencia = bloque => /\b\(?\d{4}[a-z]?\)?\b|https?:\/\/|doi\.org\//i.test(bloque);
+  while (indiceReferencias > 1 && pareceReferencia(bloques[indiceReferencias - 1])) indiceReferencias--;
+  const cuerpo = bloques.slice(0, indiceReferencias);
+  const referencias = bloques.slice(indiceReferencias);
   if (cuerpo.length < 3) return contenido;
-  const limpiar = b => b.replace(/^\s*(?:introducci[oó]n|desarrollo|conclusi[oó]n|referencias|bibliograf[ií])\s*:?\s*/i, '').trim();
-  const desarrollo = cuerpo.slice(1, -1).map(b => '[PARRAFO]\n' + limpiar(b)).join('\n\n');
-  const partes = [
-    '[TITULO_SECCION: Introducción]\n[PARRAFO]\n' + limpiar(cuerpo[0]),
-    '[TITULO_SECCION: Desarrollo]\n' + desarrollo,
-    '[TITULO_SECCION: Conclusión]\n[PARRAFO]\n' + limpiar(cuerpo[cuerpo.length - 1])
+  const sinEtiqueta = bloque => bloque.replace(/^\s*(?:introducci[oó]n|desarrollo|conclusi[oó]n|referencias|bibliograf[ií]a)\s*:?\s*$/i, '').trim();
+  const secciones = [
+    `[TITULO_SECCION: Introducción]\n[PARRAFO]\n${sinEtiqueta(cuerpo[0])}`,
+    `[TITULO_SECCION: Desarrollo]\n${cuerpo.slice(1, -1).map(bloque => `[PARRAFO]\n${sinEtiqueta(bloque)}`).join('\n\n')}`,
+    `[TITULO_SECCION: Conclusión]\n[PARRAFO]\n${sinEtiqueta(cuerpo[cuerpo.length - 1])}`
   ];
-  if (referencias.length) partes.push('[TITULO_SECCION: Referencias]\n' + referencias.map(b => '[PARRAFO]\n' + b).join('\n\n'));
-  return partes.join('\n\n');
+  if (referencias.length) secciones.push(`[TITULO_SECCION: Referencias]\n${referencias.map(bloque => `[PARRAFO]\n${bloque}`).join('\n\n')}`);
+  return secciones.join('\n\n');
 }
 
-
-  function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferencias = false, tipoTrabajo = 'Ensayo') { const contenido = String(texto || '').trim();
+function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferencias = false, tipoTrabajo = 'Ensayo') {
+  const contenido = String(texto || '').trim();
   const normalizado = contenido.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const marcadores = [...contenido.matchAll(/^\[TITULO_SECCION:\s*(.+?)\]\s*$/gim)]
     .map(match => match[1].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim());
   const esLineaDeTiempo = /línea\s+de\s+tiempo/i.test(tipoTrabajo);
+  const esEnsayo = /^ensayo$/i.test(tipoTrabajo);
   // Introducción/desarrollo/conclusión son requisitos de ensayo, no de todos
   // los productos académicos. Los trabajos de cronología llevan hitos fechados.
-  const faltantes = esLineaDeTiempo
+  const faltantes = esLineaDeTiempo || !esEnsayo
     ? []
     : ['introduccion', 'desarrollo', 'conclusion'].filter(seccion => !marcadores.includes(seccion));
   for (const seccion of estructuraRequerida) {
@@ -1916,13 +1932,20 @@ function normalizarEstructuraEnsayo(texto, tipoTrabajo = 'Ensayo') {
       throw new Error('La línea de tiempo quedó incompleta: debe incluir al menos cuatro hitos con sus fechas y explicaciones. No se descargó; vuelve a intentarlo.');
     }
   }
-  for (const seccion of (esLineaDeTiempo ? [] : ['introduccion', 'desarrollo', 'conclusion'])) {
+  for (const seccion of (esLineaDeTiempo || !esEnsayo ? [] : ['introduccion', 'desarrollo', 'conclusion'])) {
     const inicio = normalizado.search(new RegExp(`^\\[titulo_seccion:\\s*${seccion}\\s*\\]\\s*$`, 'im'));
-    const despuesDelInicio = normalizado.slice(inicio + 1);
-    const siguiente = despuesDelInicio.search(/^\[TITULO_SECCION:\s*.+?\]\s*$/im);
-    const bloque = normalizado.slice(inicio, siguiente < 0 ? undefined : inicio + 1 + siguiente);
-    if (!/\[PARRAFO\]\s*\S/i.test(bloque)) {
-      throw new Error('La seccion no tiene contenido. No se descargo; vuelve a intentar.');
+    if (inicio < 0) continue;
+    const siguiente = normalizado.slice(inicio + 1).search(/^\[titulo_seccion:\s*.+?\]\s*$/im);
+    const bloque = normalizado.slice(inicio + 1, siguiente < 0 ? undefined : inicio + 1 + siguiente);
+    const textoSeccion = bloque
+      .replace(/^\[(?:parrafo|pargrafo|paragrafo|subtitulo|lista|referencia)(?::[^\]]*)?\]\s*/gim, ' ')
+      .replace(/^\[\/lista\]\s*$/gim, ' ')
+      .replace(/\[[^\]]{1,80}\]/g, ' ')
+      .replace(/[*#_`>|-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (textoSeccion.split(/\s+/).filter(Boolean).length < 20) {
+      throw new Error(`La sección ${seccion} tiene poco o ningún contenido. No se descargó ningún documento; puedes continuar el borrador o descargarlo marcado para revisión.`);
     }
   }
   const textoSinMarcadoresEstructurales = contenido.replace(/^\[(?:TITULO_SECCION:\s*.+?|PARRAFO|SUBTITULO:\s*.+?)\]\s*$/gim, '');
@@ -1961,6 +1984,7 @@ function mostrarBorradorIncompleto(motivo) {
   if (!texto || !/^\[TITULO_SECCION:\s*.+?\]\s*$/im.test(texto)) return false;
   if (/\bwe need to (produce|write|draft|create)|\bnow (write|produce|draft)|\blet's (aim|write|draft)|\bI should (write|include|produce)|\bthe user (asks|requested|wants)|\bwe need around \d+ words/i.test(texto)) return false;
 
+  draftIncompleteReason = String(motivo || 'la validación no pudo confirmar que el trabajo esté completo.');
   preview.replaceChildren();
   const aviso = document.createElement('div');
   aviso.setAttribute('role', 'status');
@@ -1974,6 +1998,13 @@ function mostrarBorradorIncompleto(motivo) {
   resume.textContent = '↻ Continuar desde el borrador guardado';
   resume.addEventListener('click', () => void generarTrabajo(true));
   aviso.appendChild(resume);
+  const downloadDraft = document.createElement('button');
+  downloadDraft.type = 'button';
+  downloadDraft.className = 'btn btn-ghost';
+  downloadDraft.style.cssText = 'display:block;margin-top:8px;color:var(--text)';
+  downloadDraft.textContent = '⬇ Descargar borrador marcado para revisión';
+  downloadDraft.addEventListener('click', () => void descargarBorradorIncompleto());
+  aviso.appendChild(downloadDraft);
   preview.insertAdjacentHTML('beforeend', formatearContenido(texto));
   preview.classList.add('visible');
   document.getElementById('previewActions').classList.remove('visible');
@@ -2016,7 +2047,10 @@ async function generarTrabajo(continuarBorrador = false) {
   generationPaused = false;
   generationCancelled = false;
   generationTimedOut = false;
-  if (!continuarBorrador) generatedContent = '';
+  if (!continuarBorrador) {
+    generatedContent = '';
+    draftIncompleteReason = '';
+  }
   generationController = new AbortController();
   // Los intentos tienen margen para trabajos extensos; el límite total de recuperación es de 10 minutos.
   const totalGenerationTimeout = setTimeout(() => {
@@ -2075,7 +2109,7 @@ async function generarTrabajo(continuarBorrador = false) {
   const tamTitulo = document.getElementById('tamTitulo').value;
   const normas = document.getElementById('normas').value;
   const paginasElegidas = document.getElementById('paginas').value;
-  const paginas = (typeof analisis !== 'undefined' && analisis.extensionExplicita) ? analisis.paginas : paginasElegidas;
+  const paginas = analisis.extensionExplicita ? analisis.paginas : paginasElegidas;
   const negrita = document.getElementById('negrita').value.includes('Sí') ? 'en negrita' : 'normal';
 
   // Estructura detectada
@@ -2084,6 +2118,9 @@ async function generarTrabajo(continuarBorrador = false) {
     : analisis.estructura.length > 0
     ? analisis.estructura.join(', ')
     : 'Introducción, Desarrollo, Conclusión';
+  const estructuraTexto = analisis.estructura.length > 0
+    ? analisis.estructura.join(', ')
+    : estructuraPredeterminada;
 
   // Perfil del usuario
   const nombre = currentUser?.nombre || '[Nombre del estudiante]';
@@ -2112,10 +2149,7 @@ async function generarTrabajo(continuarBorrador = false) {
   const instruccionesSalida = esLineaDeTiempo
     ? 'Para el formato Línea de Tiempo: presenta una cronología de 8–12 hitos (o los exigidos por el docente), ordenados de la fecha más antigua a la más reciente. Cada hito debe usar [SUBTITULO: FECHA — ACONTECIMIENTO] y debajo [PARRAFO] una explicación breve de su importancia. No la conviertas en ensayo ni agregues portada; la página ya genera la portada.'
     : `Usa los marcadores [TITULO_SECCION: nombre], [PARRAFO] y [SUBTITULO: nombre] para las secciones que correspondan a ${currentWorkType} y a las indicaciones docentes. Si se pide portada, la página la arma aparte; no la generes en el texto.`;
-  const estructuraTexto = analisis.estructura.length > 0
-  ? analisis.estructura.join(', ')
-  : estructuraPredeterminada;
-const promptBase = `Redacta en español un trabajo académico completo sobre el tema indicado. Debe desarrollar ideas concretas y conectadas; queda prohibido sustituir el análisis con frases genéricas que solo repitan que el tema es importante.
+  const promptBase = `Redacta en español un trabajo académico completo sobre el tema indicado. Debe desarrollar ideas concretas y conectadas; queda prohibido sustituir el análisis con frases genéricas que solo repitan que el tema es importante.
 
 DATOS ACADÉMICOS:
 - Asignatura: ${materia || '[Asignatura]'}
@@ -2149,7 +2183,7 @@ CRITERIOS DE CONTENIDO:
 3b. Cuando ayude al análisis, adapta los ejemplos al campo de estudio. Para carreras de turismo, prioriza situaciones verosímiles de hoteles, restaurantes, agencias de viajes o servicios turísticos. No inventes vivencias personales del estudiante.
 4. En temas científicos, distingue hechos establecidos, hipótesis y aplicaciones; explica la evidencia con precisión y no inventes cifras, experimentos, citas textuales ni resultados.
 5. Si corresponde una conclusión, sintetiza lo demostrado sin añadir afirmaciones nuevas ni frases vacías. En líneas de tiempo, respeta el orden cronológico y explica la relevancia de los hitos.
-6. Incluye referencias únicamente cuando sean identificables y pertinentes. No inventes autores, títulos, editoriales, DOI, fechas ni enlaces. No digas que verificaste una fuente si no tuviste acceso a ella; si no puedes identificar con seguridad una fuente, no la presentes como comprobada.
+6. Incluye referencias únicamente cuando sean identificables y pertinentes. No inventes autores, títulos, editoriales, DOI, fechas, enlaces, instituciones ni informes. No atribuyas porcentajes o resultados a un estudio si no identificas con seguridad la fuente que los respalda. No uses la página principal de una institución como si fuera el enlace de un informe específico. Si no puedes confirmar los datos bibliográficos, omite esa fuente o indica claramente que debe verificarse; nunca la presentes como comprobada.
 7. Sigue las instrucciones específicas sobre preguntas, objetivos, método, ejemplos y estructura. No agregues secciones que contradigan lo pedido.
 8. No menciones que eres una IA y no incluyas notas al usuario dentro del trabajo.
 9. No presentes porcentajes, resultados, estudios, empresas ni casos como reales si no puedes vincularlos con una fuente identificable y pertinente. Si el ejemplo es inventado para explicar una idea, indícalo expresamente como hipotético y no lo atribuyas a un estudio o autor.
@@ -2171,7 +2205,9 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
   try {
     if (!firebaseAuth.currentUser) throw new Error('Inicia sesión para generar un trabajo.');
     const maxReanudacionesAutomaticas = 3;
+    const maxReparacionesEstructurales = 5;
     let reanudaciones = 0;
+    let reparacionesEstructurales = 0;
     let completado = false;
     let reparacionEstructural = '';
     generationStatusOverride = 'Verificando la sesión...';
@@ -2186,6 +2222,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
       let primerFragmentoRecibido = false;
       let timeoutPrimerFragmento;
       let timeoutSinFragmentos;
+      let timeoutRespuestaServidor;
       const timeoutIntento = setTimeout(() => {
         intentoExpirado = true;
         controller.abort(new DOMException('El proveedor estuvo demasiado tiempo sin completar esta parte.', 'TimeoutError'));
@@ -2198,16 +2235,26 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
           : 'Conectando con el proveedor…';
         generationStatus.textContent = generationStatusOverride;
         const solicitud = reparacionEstructural
-          ? crearPromptContinuacion(lastGenerationPrompt || promptBase, generatedContent, `Completa únicamente los apartados estructurales faltantes: ${reparacionEstructural}.`)
+          ? crearPromptReparacionEstructural(lastGenerationPrompt || promptBase, generatedContent, reparacionEstructural)
           : (recuperando || continuarBorrador
             ? crearPromptContinuacion(lastGenerationPrompt || promptBase, generatedContent)
             : promptMaestro);
+        // Evita que el navegador espere varios minutos si el servidor no llega
+        // a devolver ni siquiera los encabezados HTTP de la solicitud.
+        timeoutRespuestaServidor = setTimeout(() => {
+          intentoExpirado = true;
+          generationStatusOverride = 'El servidor tardó demasiado en iniciar la solicitud; probando una alternativa…';
+          generationStatus.textContent = generationStatusOverride;
+          controller.abort(new DOMException('El servidor no respondió a tiempo.', 'TimeoutError'));
+        }, 55000);
         const res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
           signal: controller.signal,
-          body: JSON.stringify({ prompt: solicitud, fallbackAttempt: reanudaciones, maxTokens: recuperando ? 8000 : Math.min(16000, Math.max(4000, paginasObjetivo * 2400)), stream: true })
+          body: JSON.stringify({ prompt: solicitud, fallbackAttempt: reanudaciones + reparacionesEstructurales, maxTokens: reparacionEstructural ? 5000 : recuperando ? 8000 : Math.min(16000, Math.max(4000, paginasObjetivo * 2400)), stream: true })
         });
+        clearTimeout(timeoutRespuestaServidor);
+        timeoutRespuestaServidor = null;
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           const requestError = new Error(data.error || `Servicio de generación respondió ${res.status}`);
@@ -2253,16 +2300,21 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
           // Si el proveedor repitió el borrador y este ya satisface la estructura,
           // tratar la repetición como respuesta completa, sin lanzar otra generación.
           if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
-            validarTrabajoGenerado((generatedContent = normalizarEstructuraEnsayo(generatedContent, currentWorkType)), analisis.estructura, /apa/i.test(normas), currentWorkType);
+            validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
             completado = true;
             break;
           }
-          if (reanudaciones >= maxReanudacionesAutomaticas) {
+          if (reparacionEstructural && reparacionesEstructurales >= maxReparacionesEstructurales) {
+            throw new Error(`El proveedor cortó la sección pendiente (${reparacionEstructural}) varias veces. El borrador se conserva para continuar sin perder lo generado.`);
+          }
+          if (!reparacionEstructural && reanudaciones >= maxReanudacionesAutomaticas) {
             throw new Error('El proveedor alcanzó varias veces su límite de salida. El borrador quedó guardado en pantalla; puedes continuar desde ahí.');
           }
-          reparacionEstructural = '';
-          reanudaciones += 1;
-          generationStatusOverride = 'El proveedor llegó al límite de salida. Continuando desde el último fragmento…';
+          if (reparacionEstructural) reparacionesEstructurales += 1;
+          else reanudaciones += 1;
+          generationStatusOverride = reparacionEstructural
+            ? `La sección ${reparacionEstructural} alcanzó el límite; completándola en otro fragmento…`
+            : 'El proveedor llegó al límite de salida. Continuando desde el último fragmento…';
           generationStatus.textContent = generationStatusOverride;
           clearTimeout(timeoutIntento);
           continue;
@@ -2273,20 +2325,24 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         // idéntica. Si el borrador previo ya era válido, cerrar como completado;
         // si no, mostrarlo como borrador y dejar que el usuario decida.
         if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
-          validarTrabajoGenerado((generatedContent = normalizarEstructuraEnsayo(generatedContent, currentWorkType)), analisis.estructura, /apa/i.test(normas), currentWorkType);
+          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
           completado = true;
           break;
         }
 
         try {
-          validarTrabajoGenerado((generatedContent = normalizarEstructuraEnsayo(generatedContent, currentWorkType)), analisis.estructura, /apa/i.test(normas), currentWorkType);
+          generatedContent = normalizarEstructuraEnsayo(generatedContent, currentWorkType);
+          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
           advertenciaCitas = revisarCitasAPA(generatedContent, /apa/i.test(normas));
           completado = true;
         } catch (validationError) {
-          const missingMatch = String(validationError.message || '').match(/faltan\s+(.+?)\.\s+No se descarg[oó]/i);
-          if (!missingMatch || reanudaciones >= maxReanudacionesAutomaticas) throw validationError;
-          reparacionEstructural = missingMatch[1];
-          reanudaciones += 1;
+          const validationMessage = String(validationError.message || '');
+          const missingMatch = validationMessage.match(/faltan\s+(.+?)\.\s+No se descarg[oó]/i);
+          const sectionContentMatch = validationMessage.match(/secci[oó]n\s+(introduccion|desarrollo|conclusion)\s+(?:tiene poco o ning[uú]n contenido|no tiene contenido)/i);
+          const sectionToRepair = sectionContentMatch?.[1] || missingMatch?.[1];
+          if (!sectionToRepair || reparacionesEstructurales >= maxReparacionesEstructurales) throw validationError;
+          reparacionEstructural = sectionToRepair;
+          reparacionesEstructurales += 1;
           generationStatusOverride = `Falta una sección (${reparacionEstructural}); el proveedor la completará sin rehacer lo anterior…`;
           generationStatus.textContent = generationStatusOverride;
           clearTimeout(timeoutIntento);
@@ -2294,13 +2350,13 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         }
       } catch (attemptError) {
         clearTimeout(timeoutIntento);
+        clearTimeout(timeoutRespuestaServidor);
         clearTimeout(timeoutPrimerFragmento);
         clearTimeout(timeoutSinFragmentos);
         if (generationCancelled) throw new DOMException('Generación cancelada por el usuario.', 'AbortError');
         if (generationTimedOut) throw new DOMException('Se alcanzó el límite total de tiempo.', 'TimeoutError');
         if (reanudaciones >= maxReanudacionesAutomaticas || !esErrorReintentableGeneracion(attemptError, intentoExpirado)) throw attemptError;
         reanudaciones += 1;
-        reparacionEstructural = '';
         generationStatusOverride = generatedContent.trim()
           ? `Se interrumpió la conexión. Conservo ${generatedContent.trim().split(/\s+/).length} palabras y reanudo en unos segundos (${reanudaciones}/${maxReanudacionesAutomaticas})…`
           : `El proveedor no respondió. Reintentando automáticamente (${reanudaciones}/${maxReanudacionesAutomaticas})…`;
@@ -2309,6 +2365,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         await esperarReintentoGeneracion(Math.min(8000, 1000 * (2 ** (reanudaciones - 1))), generationController.signal);
       } finally {
         clearTimeout(timeoutIntento);
+        clearTimeout(timeoutRespuestaServidor);
         clearTimeout(timeoutPrimerFragmento);
         clearTimeout(timeoutSinFragmentos);
       }
@@ -2363,7 +2420,9 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
     if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
     const mensaje = e instanceof TypeError
       ? 'No se pudo conectar con el servicio de IA. Revisa que el servidor local siga abierto en PowerShell.'
-      : `No se pudo completar el trabajo: ${e.message}`;
+      : borradorPreservado
+        ? `El borrador quedó guardado. Pulsa “Continuar desde el borrador guardado” para completar lo que falta. Detalle: ${e.message}`
+        : `No se pudo completar el trabajo: ${e.message}`;
     showToast(mensaje, 'error');
     return;
   }
@@ -2494,6 +2553,16 @@ function limpiarPreview() {
   document.getElementById('previewWrap').classList.remove('visible');
   document.getElementById('previewActions').classList.remove('visible');
   generatedContent = '';
+  draftIncompleteReason = '';
+}
+
+async function descargarBorradorIncompleto() {
+  if (!generatedContent.trim()) return;
+  const aceptado = confirm(`Este archivo se marcará como BORRADOR INCOMPLETO. Motivo: ${draftIncompleteReason}\n\nRevísalo y complétalo antes de entregarlo. ¿Quieres descargarlo de todos modos?`);
+  if (!aceptado) return;
+  draftExportMode = true;
+  try { await descargarTrabajo(); }
+  finally { draftExportMode = false; }
 }
 
 // ── DOWNLOAD WORD ─────────────────────────────────────────
@@ -2543,7 +2612,8 @@ function descargarPDF() {
   }
   const title = document.getElementById('tema')?.value || 'Trabajo académico';
   const preview = document.getElementById('previewWrap');
-  const htmlContent = preview?.innerHTML || `<pre>${textoExportable().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+  const draftBanner = draftExportMode ? '<p style="border:2px solid #a00;padding:12px;font-weight:bold;text-align:center">BORRADOR INCOMPLETO — REVISIÓN OBLIGATORIA</p>' : '';
+  const htmlContent = draftBanner + (preview?.innerHTML || `<pre>${textoExportable().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`);
   printWindow.document.open();
   printWindow.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${title.replace(/[<>]/g, '')}</title><style>
     @page{size:letter;margin:2.54cm}body{font-family:Arial,sans-serif;font-size:12pt;line-height:1.5;color:#000;background:#fff;margin:0}
@@ -2558,7 +2628,7 @@ function descargarPDF() {
 function bloquesParaPresentacion() {
   const groups = [];
   let title = 'Desarrollo';
-  let paragraphs = [];
+  let paragraphs = draftExportMode ? ['BORRADOR INCOMPLETO — REVISIÓN OBLIGATORIA'] : [];
   let inCover = false;
   const flush = () => {
     if (paragraphs.length) groups.push({ title, paragraphs });
@@ -2778,6 +2848,7 @@ async function descargarWord() {
 
     // Salto de página al terminar la portada
     bodyXml += pageBreak();
+    if (draftExportMode) bodyXml += paraBody(`BORRADOR INCOMPLETO — REVISIÓN OBLIGATORIA. Motivo: ${draftIncompleteReason}`, { bold: true, center: true, sz: szTitle });
 
     // La portada ocupa una hoja; el contenido fluye para respetar la extensión solicitada.
     const lines = generatedContent.split('\n');
