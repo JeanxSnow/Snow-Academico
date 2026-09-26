@@ -21,6 +21,7 @@ const FALLBACK_MODELS = [
   'openrouter/free'
 ];
 const MAX_BODY = 512 * 1024;
+const FIREBASE_REQUEST_TIMEOUT_MS = 15000;
 const UPSTREAM_IDLE_TIMEOUT_MS = 120000;
 const UPSTREAM_TOTAL_TIMEOUT_MS = 480000;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
@@ -124,7 +125,9 @@ function readJson(req, limit = 32 * 1024) {
 
 async function getFirebaseCertificates() {
   if (Date.now() < firebaseCertCache.expiresAt) return firebaseCertCache.certificates;
-  const response = await fetch('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com');
+  const response = await fetch('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com', {
+    signal: AbortSignal.timeout(FIREBASE_REQUEST_TIMEOUT_MS)
+  });
   if (!response.ok) throw new Error(`Firebase certificate request failed: ${response.status}`);
   const certificates = await response.json();
   const cacheControl = response.headers.get('cache-control') || '';
@@ -161,7 +164,10 @@ async function getFirebaseUser(req) {
 }
 async function getAccountBanStatus(firebaseUser) {
   const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(FIREBASE_PROJECT_ID)}/databases/(default)/documents/userAccess/${encodeURIComponent(firebaseUser.uid)}`;
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${firebaseUser.token}` } });
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${firebaseUser.token}` },
+    signal: AbortSignal.timeout(FIREBASE_REQUEST_TIMEOUT_MS)
+  });
   if (response.status === 404) return false;
   if (!response.ok) throw new Error(`Firestore account access check failed: ${response.status}`);
   const document = await response.json();
@@ -277,6 +283,7 @@ const server = http.createServer(async (req, res) => {
   if (!process.env.OPENROUTER_API_KEY) {
     return send(res, 503, { error: 'Falta configurar OPENROUTER_API_KEY en el servidor.' });
   }
+  console.log('Solicitud de generacion recibida. Validando sesion y estado de cuenta...');
   const firebaseUser = await getFirebaseUser(req);
   if (!firebaseUser) return send(res, 401, { error: 'Inicia sesión para generar un trabajo.' });
   try {
@@ -285,7 +292,7 @@ const server = http.createServer(async (req, res) => {
     }
   } catch (error) {
     console.error('Account access check failed:', error.message);
-    return send(res, 503, { error: 'No se pudo verificar el acceso a esta cuenta. Intenta de nuevo.' });
+    return send(res, 503, { error: 'La verificación de la cuenta tardó demasiado. Intenta de nuevo.' });
   }
 
   let upstreamTimeout;
