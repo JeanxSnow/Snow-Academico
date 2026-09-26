@@ -1879,7 +1879,7 @@ function normalizarEstructuraEnsayo(texto, tipoTrabajo = 'Ensayo') {
 }
 
 
-  const contenido = String(texto || '').trim();
+  function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferencias = false, tipoTrabajo = 'Ensayo') { const contenido = String(texto || '').trim();
   const normalizado = contenido.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const marcadores = [...contenido.matchAll(/^\[TITULO_SECCION:\s*(.+?)\]\s*$/gim)]
     .map(match => match[1].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim());
