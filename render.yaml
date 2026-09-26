@@ -17,3 +17,5 @@ services:
         value: snow-academico
       - key: ADMIN_UID
         sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false

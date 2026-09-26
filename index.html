@@ -953,6 +953,23 @@
           </div>
         </div>
         <div class="card" style="margin-bottom:18px">
+          <div class="card-title">Límite diario de créditos por usuario</div>
+          <p class="page-sub">Cada trabajo completado o cancelado consume un crédito. Los errores técnicos no consumen créditos.</p>
+          <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+            <div class="form-group" style="margin:0;min-width:180px">
+              <label class="form-label" for="adminDailyCreditLimit">Créditos diarios (0–50)</label>
+              <input class="form-input" type="number" min="0" max="50" step="1" id="adminDailyCreditLimit" value="5">
+            </div>
+            <button class="btn btn-gold" type="button" onclick="saveAdminCreditLimit()">Guardar límite</button>
+            <span id="adminCreditsStatus" class="page-sub" style="margin:0"></span>
+          </div>
+          <div style="overflow-x:auto;margin-top:14px">
+            <table class="history-table"><thead><tr><th>Correo</th><th>Usados hoy</th><th>En curso</th><th>Disponibles</th></tr></thead>
+              <tbody id="adminCreditsTable"><tr><td colspan="4" style="color:var(--text2)">Carga el panel para ver el uso de hoy.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" style="margin-bottom:18px">
           <div class="card-title">Cuentas registradas</div>
           <div style="overflow-x:auto">
             <table class="history-table"><thead><tr><th>Nombre</th><th>Correo</th><th>Registro</th><th>Último acceso</th><th>Recuperación</th><th>Acceso</th></tr></thead>
@@ -1191,6 +1208,71 @@ async function checkAdminAccess(authUser) {
   }
 }
 
+async function authenticatedApi(path, options = {}) {
+  const user = firebaseAuth.currentUser;
+  if (!user) throw new Error('Inicia sesión para continuar.');
+  const token = await user.getIdToken();
+  const response = await fetch(path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) },
+    cache: 'no-store'
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || `La solicitud respondió ${response.status}.`);
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+async function startCreditReservation() {
+  return authenticatedApi('/api/credits/start', { method: 'POST', body: '{}' });
+}
+
+async function finishCreditReservation(reservationId, outcome) {
+  if (!reservationId) return;
+  return authenticatedApi('/api/credits/finish', {
+    method: 'POST',
+    body: JSON.stringify({ reservationId, outcome })
+  });
+}
+
+async function loadAdminCreditSettings() {
+  const data = await authenticatedApi('/api/admin/credits');
+  document.getElementById('adminDailyCreditLimit').value = String(data.limit);
+  const status = document.getElementById('adminCreditsStatus');
+  status.textContent = `Límite activo: ${data.limit} por usuario hoy.`;
+  const body = document.getElementById('adminCreditsTable');
+  body.replaceChildren();
+  for (const usage of data.users || []) {
+    const row = document.createElement('tr');
+    for (const value of [usage.email || usage.uid, String(usage.used || 0), String(usage.pending || 0), String(usage.remaining || 0)]) {
+      const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell);
+    }
+    body.appendChild(row);
+  }
+  if (!body.children.length) body.innerHTML = '<tr><td colspan="4">Todavía no hay consumo hoy.</td></tr>';
+}
+
+async function saveAdminCreditLimit() {
+  if (!currentUser?.isAdmin) return;
+  const input = document.getElementById('adminDailyCreditLimit');
+  const limit = Number(input.value);
+  if (!Number.isInteger(limit) || limit < 0 || limit > 50) {
+    showToast('Escribe un límite entero entre 0 y 50.', 'error');
+    return;
+  }
+  try {
+    await authenticatedApi('/api/admin/credits', { method: 'PUT', body: JSON.stringify({ limit }) });
+    showToast('Límite diario actualizado.', 'success');
+    await loadAdminCreditSettings();
+  } catch (error) {
+    document.getElementById('adminCreditsStatus').textContent = error.message;
+    showToast(error.message, 'error');
+  }
+}
+
 function logAppError(stage, error) {
   const authUser = firebaseAuth.currentUser;
   if (!authUser) return;
@@ -1283,6 +1365,11 @@ async function loadAdminPanel() {
       errorsBody.appendChild(row);
     }
     if (!errors.length) errorsBody.innerHTML = '<tr><td colspan="4">Sin errores registrados.</td></tr>';
+    try { await loadAdminCreditSettings(); }
+    catch (creditError) {
+      document.getElementById('adminCreditsStatus').textContent = creditError.message;
+      document.getElementById('adminCreditsTable').innerHTML = '<tr><td colspan="4">No se pudo consultar el control de créditos.</td></tr>';
+    }
   } catch (error) {
     logAppError('admin-panel-load', error);
     usersBody.innerHTML = '<tr><td colspan="6">No se pudieron leer las cuentas. Revisa las reglas de Firestore.</td></tr>';
@@ -1645,6 +1732,7 @@ ${contexto}`;
 
 function limpiarSalidaModelo(texto) {
   const patronesInternos = [
+    /^\s*(?:user\s+)?safety\s*:\s*(?:safe|unsafe|high|medium|low)\s*$/i,
     /\bwe need to (?:produce|write|draft|create)\b/i,
     /\bnow (?:write|produce|draft|let's|lets)\b/i,
     /\blet's (?:aim|write|draft|produce)\b/i,
@@ -1660,6 +1748,31 @@ function limpiarSalidaModelo(texto) {
     .join('\n')
     .replace(/\n*\[(?:TITULO_SECCION|PARRAFO|SUBTITULO|REFER(?:ENCIA)?)(?::[^\]\r\n]*)?$/i, '')
     .trim();
+}
+
+function unirFragmentoGenerado(base, fragmento) {
+  const anterior = String(base || '');
+  const nuevo = String(fragmento || '');
+  if (!anterior) return nuevo;
+  if (!nuevo) return anterior;
+  if (nuevo.startsWith(anterior)) return nuevo;
+
+  // Al reanudar, algunos modelos vuelven a emitir el documento entero. Si el
+  // nuevo flujo contiene el final del borrador, conservar solo lo que viene después.
+  const cola = anterior.slice(-Math.min(1200, anterior.length));
+  for (let longitud = Math.min(cola.length, nuevo.length); longitud >= 80; longitud--) {
+    const ancla = cola.slice(-longitud);
+    const indice = nuevo.indexOf(ancla);
+    if (indice >= 0) return anterior + nuevo.slice(indice + longitud);
+  }
+
+  // Evita pegar una segunda copia completa cuando no se encuentra el ancla exacta.
+  const inicioAnterior = anterior.slice(0, 180).replace(/\s+/g, ' ').trim().toLocaleLowerCase('es');
+  const inicioNuevo = nuevo.slice(0, 180).replace(/\s+/g, ' ').trim().toLocaleLowerCase('es');
+  if (inicioAnterior.length > 70 && (inicioNuevo.startsWith(inicioAnterior.slice(0, 70)) || inicioAnterior.startsWith(inicioNuevo.slice(0, 70)))) {
+    return anterior;
+  }
+  return `${anterior.trimEnd()}\n\n${nuevo.trimStart()}`;
 }
 
 function esErrorReintentableGeneracion(error, intentoExpirado = false) {
@@ -1678,7 +1791,7 @@ function esperarReintentoGeneracion(ms, signal) {
   });
 }
 
-async function readGenerationStream(response) {
+async function readGenerationStream(response, onContent = () => {}) {
   if (!response.body) throw new Error('El navegador no pudo abrir la transmisión del texto.');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -1695,8 +1808,8 @@ async function readGenerationStream(response) {
     if (eventType === 'error' || item.error) throw new Error(item.error || 'La generación se interrumpió.');
     if (item.choices?.[0]?.finish_reason) finishReason = item.choices[0].finish_reason;
     const delta = item.choices?.[0]?.delta?.content;
-    if (typeof delta === 'string') generatedContent += delta;
-    else if (Array.isArray(delta)) generatedContent += delta.map(part => part.text || '').join('');
+    if (typeof delta === 'string') onContent(delta);
+    else if (Array.isArray(delta)) onContent(delta.map(part => part.text || '').join(''));
     eventType = 'message';
   };
   while (true) {
@@ -1822,6 +1935,16 @@ async function generarTrabajo(continuarBorrador = false) {
   }
 
   generationInProgress = true;
+  let creditReservationId = '';
+  try {
+    const credit = await startCreditReservation();
+    creditReservationId = credit.reservationId;
+    showToast(`Reserva iniciada: te quedan ${credit.remaining} de ${credit.limit} créditos para hoy después de este intento. Si termina o cancelas, contará 1; un error técnico no cuenta.`, 'info');
+  } catch (creditError) {
+    generationInProgress = false;
+    showToast(`No se pudo comprobar el límite diario de créditos: ${creditError.message}`, 'error');
+    return;
+  }
   generationPaused = false;
   generationCancelled = false;
   generationTimedOut = false;
@@ -1851,23 +1974,32 @@ async function generarTrabajo(continuarBorrador = false) {
   const generationStatus = document.getElementById('generationStatus');
   generationStatus.textContent = 'Conectando con el modelo…';
   let lastPaintAt = 0;
+  let lastPaintLength = 0;
   let lastStatusAt = 0;
+  let lastDeltaAt = generationStartedAt;
   let generationStatusOverride = '';
   const generationStartedAt = Date.now();
   const paintTimer = setInterval(() => {
     if (!generationPaused && Date.now() - lastStatusAt >= 1000) {
       const elapsed = Math.floor((Date.now() - generationStartedAt) / 1000);
       const timeLabel = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
-      generationStatus.textContent = generationStatusOverride || (generatedContent
-        ? `Generando… ${timeLabel} · el texto aparece conforme llega.`
-        : `Esperando respuesta del proveedor… ${timeLabel}`);
+      const sinFragmentos = Date.now() - lastDeltaAt;
+      generationStatus.textContent = generationStatusOverride || (generatedContent && sinFragmentos > 20000
+        ? `Esperando el siguiente fragmento del proveedor… ${timeLabel}. El borrador se conserva.`
+        : generatedContent
+          ? `Generando… ${timeLabel} · el texto aparece conforme llega.`
+          : `Esperando respuesta del proveedor… ${timeLabel}`);
       lastStatusAt = Date.now();
     }
-    if (!generationInProgress || generationPaused || !generatedContent || Date.now() - lastPaintAt < 250) return;
+    if (!generationInProgress || generationPaused || !generatedContent ||
+        (generatedContent.length - lastPaintLength < 300 && Date.now() - lastPaintAt < 1400)) return;
     previewWrap.innerHTML = formatearContenido(generatedContent);
     previewWrap.classList.add('visible');
-    previewWrap.scrollTop = previewWrap.scrollHeight;
+    if (previewWrap.scrollHeight - previewWrap.scrollTop - previewWrap.clientHeight < 80) {
+      previewWrap.scrollTop = previewWrap.scrollHeight;
+    }
     lastPaintAt = Date.now();
+    lastPaintLength = generatedContent.length;
   }, 150);
 
   const fuente = document.getElementById('fuente').value;
@@ -2013,7 +2145,13 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
         generationStatus.textContent = recuperando
           ? 'El proveedor retomó el trabajo; el borrador anterior permanece intacto.'
           : 'Generando… el texto aparecerá aquí conforme llegue.';
-        const finishReason = await readGenerationStream(res);
+        const baseAntesDelIntento = generatedContent;
+        let fragmentoDelIntento = '';
+        const finishReason = await readGenerationStream(res, delta => {
+          lastDeltaAt = Date.now();
+          fragmentoDelIntento += delta;
+          generatedContent = unirFragmentoGenerado(baseAntesDelIntento, fragmentoDelIntento);
+        });
         generatedContent = limpiarSalidaModelo(generatedContent);
         if (!generatedContent.trim()) throw new Error('El servicio no devolvió contenido.');
         if (finishReason === 'length') {
@@ -2070,6 +2208,7 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
     clearTimeout(totalGenerationTimeout);
     if (e.name === 'AbortError' || e.name === 'TimeoutError') {
       if (generationTimedOut || e.name === 'TimeoutError') {
+        try { await finishCreditReservation(creditReservationId, 'error'); } catch (creditError) { console.warn('No se pudo liberar el crédito pendiente:', creditError); }
         logAppError('generation-timeout', e);
         clearInterval(paintTimer);
         generationInProgress = false; generationPaused = false; generationController = null;
@@ -2081,6 +2220,9 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
         showToast(borradorPreservado ? 'Se agotaron los reintentos automáticos; el borrador se conserva y puedes continuarlo.' : 'No se recibió suficiente texto para reanudar. Inténtalo de nuevo más tarde.', 'error');
         return;
       }
+    let cancelCreditSettled = true;
+    try { await finishCreditReservation(creditReservationId, 'cancelled'); }
+    catch (creditError) { cancelCreditSettled = false; logAppError('credit-settlement-cancelled', creditError); console.warn('No se pudo registrar el crédito de la cancelación:', creditError); }
       console.info('Generación cancelada por el usuario.');
       clearInterval(paintTimer);
       generationInProgress = false; generationPaused = false; generationController = null;
@@ -2088,9 +2230,12 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
       document.getElementById('generationControls').classList.remove('visible');
       if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
       const borradorPreservado = mostrarBorradorIncompleto('la generación fue cancelada por el usuario.');
-      showToast(borradorPreservado ? 'Generación cancelada. El borrador se conserva y puedes continuar desde ahí.' : 'Generación cancelada.', 'info');
+    const mensajeCancelacion = borradorPreservado ? 'Generación cancelada. El borrador se conserva y puedes continuar desde ahí.' : 'Generación cancelada.';
+    showToast(cancelCreditSettled ? mensajeCancelacion + ' Se contó 1 crédito.' : mensajeCancelacion + ' No se pudo actualizar el contador; contacta al administrador antes de generar de nuevo.', cancelCreditSettled ? 'info' : 'error');
       return;
     }
+    try { await finishCreditReservation(creditReservationId, 'error'); }
+    catch (creditError) { console.warn('No se pudo liberar el crédito pendiente:', creditError); }
     console.error('Error al generar el trabajo:', e);
     logAppError('generation', e);
     clearInterval(paintTimer);
@@ -2109,6 +2254,12 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
   }
 
   clearTimeout(totalGenerationTimeout);
+  let completionCreditSettled = true;
+  try { await finishCreditReservation(creditReservationId, 'completed'); }
+  catch (creditError) {
+    completionCreditSettled = false;
+    logAppError('credit-settlement', creditError);
+  }
   clearInterval(paintTimer);
   generationInProgress = false; generationPaused = false; generationController = null;
   if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
@@ -2129,7 +2280,8 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
   const mensajeGeneracion = avisosGeneracion.length
     ? `Trabajo generado. ${avisosGeneracion.join(' ')} Revisa el contenido antes de descargar.`
     : 'Trabajo generado ✓ Revísalo antes de descargar';
-  showToast(guardadoEnCuenta ? mensajeGeneracion : `${mensajeGeneracion} No se guardó en tu cuenta; descárgalo para conservarlo.`, guardadoEnCuenta && !advertenciaExtensionCorta && !advertenciaCitas ? 'success' : 'info');
+  const mensajeFinal = `${guardadoEnCuenta ? mensajeGeneracion : `${mensajeGeneracion} No se guardó en tu cuenta; descárgalo para conservarlo.`}${completionCreditSettled ? '' : ' El trabajo terminó, pero no se pudo actualizar el contador de créditos. Contacta al administrador antes de volver a generar.'}`;
+  showToast(mensajeFinal, completionCreditSettled && guardadoEnCuenta && !advertenciaExtensionCorta && !advertenciaCitas ? 'success' : 'info');
 }
 
 async function guardarTrabajoEnFirestore() {

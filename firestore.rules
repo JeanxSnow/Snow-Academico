@@ -66,5 +66,24 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
       allow delete: if false;
     }
+
+    // La configuración solo la puede cambiar el administrador; la API del
+    // servidor usa Firebase Admin para escribir el consumo y las reservas.
+    match /appSettings/{settingId} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if isAdmin()
+        && settingId == 'dailyCredits'
+        && request.resource.data.keys().hasOnly(['limit', 'updatedAt', 'updatedBy'])
+        && request.resource.data.limit is int
+        && request.resource.data.limit >= 0
+        && request.resource.data.limit <= 50;
+      allow delete: if false;
+    }
+
+    // No permitir que el navegador lea, altere o reinicie contadores de cuota.
+    match /creditUsage/{usageId} {
+      allow read, write: if false;
+    }
   }
 }

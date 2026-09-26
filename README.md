@@ -1,36 +1,32 @@
-# Snow Académico
+﻿# Snow Academico
 
-Aplicación de prueba para generar borradores académicos. Usa OpenRouter para la generación y Firebase Authentication/Cloud Firestore para cuentas, perfiles, sugerencias e historial privado por usuario.
+Aplicacion de prueba para generar borradores academicos. Usa OpenRouter para generar contenido y Firebase para cuentas y almacenamiento privado.
 
 ## Variables de entorno en Render
 
-- `OPENROUTER_API_KEY`: clave privada de OpenRouter. Guárdala solo como secreto en Render; no la publiques en GitHub ni en `index.html`.
-- `OPENROUTER_MODEL`: modelo principal. El valor inicial es `google/gemma-4-26b-a4b-it:free`; se solicitan proveedores de menor latencia y se conservan modelos alternativos.
+- `OPENROUTER_API_KEY`: clave privada; guardarla solo como secreto en Render.
+- `OPENROUTER_MODEL`: modelo principal (por defecto `google/gemma-4-26b-a4b-it:free`).
 - `FIREBASE_PROJECT_ID`: `snow-academico`.
-- `ADMIN_UID`: UID Firebase de la única cuenta autorizada para el panel. No uses solo el correo ni aceptes un indicador de administrador editable por el navegador.
+- `ADMIN_UID`: UID Firebase de la cuenta autorizada como administradora.
+- `FIREBASE_SERVICE_ACCOUNT_JSON`: JSON de la cuenta de servicio guardado como secreto de Render. Necesario para el control atomico de creditos. No publicarlo en GitHub ni enviarlo por chat.
+- `DEFAULT_DAILY_CREDIT_LIMIT`: limite predeterminado por persona y dia UTC (5).
 
-El servidor valida los tokens de Firebase con certificados públicos; no requiere una clave de servicio.
+El servidor requiere Node.js 22 o posterior. Sin la credencial de Firebase Admin, las rutas de creditos fallan de forma cerrada y no permiten iniciar generaciones.
 
-## Panel de administración
+## Panel administrador y creditos
 
-El panel presenta correos y resúmenes limitados de las cuentas, actividad aproximada, trabajos guardados y errores técnicos recientes. No muestra trabajos ni contraseñas. La recuperación envía el enlace oficial de Firebase al correo del usuario; el administrador no lee ni cambia contraseñas. Puede suspender o reactivar una cuenta; la suspensión bloquea la generación desde el servidor y no borra sus trabajos.
+El administrador define un limite diario de 0 a 50 por usuario y consulta el consumo del dia. Una generacion completada o cancelada consume un credito; un error tecnico libera la reserva y no cuenta. Las reservas se hacen en una transaccion de Firestore para impedir exceder el limite en varias pestañas. El dia se calcula en UTC.
 
-Publica las reglas de `firestore.rules` en Firebase Console. Esas reglas limitan los perfiles y trabajos a cada propietario; el administrador solo puede listar `adminUsers` y `userAccess` y leer `adminLogs`. Cada cuenta solo puede escribir su propio resumen y sus propios errores técnicos. Solo la cuenta administradora puede crear o cambiar el estado de suspensión.
+En Firebase Console, crea una clave JSON de cuenta de servicio. En Render > servicio `snow-academico` > Environment, agrega `FIREBASE_SERVICE_ACCOUNT_JSON` y pega el contenido completo como secreto. No subas ese archivo a GitHub ni lo pegues en mensajes. Publica tambien `firestore.rules` en Firebase Console.
 
-## Seguridad y pruebas
+## Recuperacion de generacion
 
-El registro no exige verificación de correo. La recuperación de contraseña requiere acceso al buzón asociado. El plan gratuito de Render puede tardar en despertar y los proveedores gratuitos de OpenRouter pueden limitar, demorar o interrumpir solicitudes; no se puede garantizar disponibilidad absoluta.
+Si el proveedor interrumpe el flujo o alcanza su limite, el navegador conserva el borrador y reintenta continuar el mismo trabajo. Cada respuesta de reintento se combina con el texto guardado y se eliminan solapamientos para reducir duplicados. La vista previa se actualiza menos a menudo para evitar congelamientos. Los proveedores gratuitos pueden demorar, limitar o interrumpir solicitudes; no se puede garantizar disponibilidad absoluta.
 
-Revisa, corrige y verifica los trabajos, las fuentes y los requisitos de la asignatura antes de enviarlos al docente o a la universidad.
+## Seguridad
 
-## Extensión y recuperación de generación
+Los trabajos y perfiles son privados para cada usuario. El administrador puede ver resumenes y errores tecnicos, pero no trabajos ni contrasenas. La recuperacion de contrasena usa el correo de Firebase. Revisa y corrige el contenido, las citas y las fuentes antes de entregar un trabajo.
 
-El selector de páginas representa el contenido escrito y no cuenta la portada. Introducción, objetivos solicitados, desarrollo, conclusión y referencias se presupuestan por separado; en Word y PDF las secciones principales comienzan en una página nueva. La paginación real puede variar según la longitud del texto y el formato.
+## Ejecucion local
 
-Si se corta el flujo o el modelo alcanza su límite de salida, el navegador conserva el texto recibido, reintenta hasta tres veces y pide a OpenRouter continuar el mismo trabajo. Los reintentos rotan el orden de modelos configurados. Si se agotan, el borrador incompleto queda en pantalla y se puede reanudar manualmente. Esto reduce pérdidas, pero no garantiza disponibilidad ni que cada modelo mantenga perfecto el contexto.
-
-Con APA 7, el prompt pide citas autor-fecha que correspondan con referencias y el generador avisa si no detecta ninguna cita dentro del texto. Esa revisión automática es orientativa: comprueba manualmente la correspondencia y la veracidad de las fuentes.
-
-## Ejecución local
-
-Requiere Node.js 20 o superior. Copia `.env.example` a `.env`, agrega tu clave de OpenRouter sin compartirla y ejecuta `npm start`; después abre `http://127.0.0.1:3000`. No subas `.env` a GitHub.
+Requiere Node.js 22 o posterior. Copia `.env.example` a `.env`, agrega la clave de OpenRouter y configura `FIREBASE_SERVICE_ACCOUNT_JSON` si usaras el control de creditos localmente. Ejecuta `npm start` y abre `http://127.0.0.1:3000`. No subas `.env` ni la clave de servicio a GitHub.
