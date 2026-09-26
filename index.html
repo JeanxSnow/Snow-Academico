@@ -2009,16 +2009,71 @@ function normalizarEstructuraEnsayo(texto, tipoTrabajo = 'Ensayo') {
   // Unifica los encabezados equivalentes antes de validar y exportar. Algunos
   // proveedores devuelven "Bibliografía / Referencias" como una sola sección.
   let contenido = String(texto || '').trim().replace(
-    /^\[TITULO_SECCION:\s*(?:Bibliograf[ií]a\s*(?:\/|y)\s*Referencias|Referencias\s*(?:\/|y)\s*Bibliograf[ií]a|Referencias(?:\s+bibliogr[aá]ficas?)?|Bibliograf[ií]a)\s*\]\s*$/gim,
+    /^[ \t]*\[TITULO_SECCION:\s*(?:Bibliograf[ií]a\s*(?:\/|y)\s*Referencias|Referencias\s*(?:\/|y)\s*Bibliograf[ií]a|Referencias(?:\s+bibliogr[aá]ficas?)?|Bibliograf[ií]a)\s*\][ \t]*$/gim,
     '[TITULO_SECCION: Referencias]'
   );
   if (!/^ensayo$/i.test(tipoTrabajo)) return contenido;
   // Convierte encabezados corrientes de referencias aunque las otras secciones
   // del borrador ya usen marcadores estructurales.
   contenido = contenido.replace(
-    /^\s*(?:#{1,6}\s*)?(?:\*\*)?(?:referencias(?:\s+bibliogr[aá]ficas?)?|bibliograf[ií]a)(?:\s*\/\s*(?:referencias|bibliograf[ií]a))?(?:\s*\([^\r\n)]{1,40}\))?\s*:?[ \t]*(?:\*\*)?\s*$/gim,
+    /^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?(?:referencias(?:[ \t]+bibliogr[aá]ficas?)?|bibliograf[ií]a)(?:[ \t]*\/[ \t]*(?:referencias|bibliograf[ií]a))?(?:[ \t]*\([^\r\n)]{1,40}\))?[ \t]*:?[ \t]*(?:\*\*)?[ \t]*$/gim,
     '[TITULO_SECCION: Referencias]'
   );
+  contenido = contenido.replace(
+    /^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?introducci[oó]n[ \t]*:?[ \t]*(?:\*\*)?[ \t]*$/gim,
+    '[TITULO_SECCION: Introducción]'
+  ).replace(
+    /^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?desarrollo[ \t]*:?[ \t]*(?:\*\*)?[ \t]*$/gim,
+    '[TITULO_SECCION: Desarrollo]'
+  ).replace(
+    /^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?conclusi[oó]n[ \t]*:?[ \t]*(?:\*\*)?[ \t]*$/gim,
+    '[TITULO_SECCION: Conclusión]'
+  );
+  if (/^ensayo$/i.test(tipoTrabajo)) {
+    const tieneMarcador = nombre => new RegExp(`^\\[TITULO_SECCION:\\s*${nombre}\\s*\\]\\s*$`, 'im').test(contenido);
+    if (!tieneMarcador('Introducción')) {
+      const lineas = contenido.split('\n');
+      let indice = lineas.findIndex(linea => linea.trim());
+      if (indice >= 0) {
+        const primera = lineas[indice].trim();
+        const esTituloDocumento = /^\[TITULO_SECCION:\s*(?!Introducci[oó]n|Desarrollo|Conclusi[oó]n|Referencias|Bibliograf[ií]a).+\]$/i.test(primera)
+          || (primera.length <= 140 && !/[.!?]$/.test(primera) && lineas.slice(indice + 1).some(linea => linea.trim()));
+        if (esTituloDocumento) {
+          const siguiente = lineas.findIndex((linea, n) => n > indice && linea.trim());
+          if (siguiente >= 0) indice = siguiente;
+        }
+        lineas.splice(indice, 0, '[TITULO_SECCION: Introducción]', '[PARRAFO]');
+        contenido = lineas.join('\n');
+      }
+    }
+    if (!tieneMarcador('Desarrollo')) {
+      const lineas = contenido.split('\n');
+      const inicioIntro = lineas.findIndex(linea => /^\[TITULO_SECCION:\s*Introducci[oó]n\s*\]$/i.test(linea.trim()));
+      const finDesarrollo = lineas.findIndex((linea, n) => n > inicioIntro && /^\[TITULO_SECCION:\s*(?:Conclusi[oó]n|Referencias|Bibliograf[ií])\s*\]$/i.test(linea.trim()));
+      const limite = finDesarrollo >= 0 ? finDesarrollo : lineas.length;
+      const esEncabezadoLibre = (linea, n) => {
+        const textoLinea = linea.trim().replace(/^#{1,6}\s*/, '').replace(/^\*\*(.*?)\*\*$/, '$1');
+        return n > inicioIntro && n < limite && textoLinea.length >= 5 && textoLinea.length <= 120
+          && !textoLinea.startsWith('[') && !/[.!?;:]$/.test(textoLinea)
+          && (!lineas[n - 1]?.trim() || !lineas[n + 1]?.trim());
+      };
+      const encabezado = lineas.findIndex(esEncabezadoLibre);
+      if (encabezado >= 0) {
+        const titulo = lineas[encabezado].trim().replace(/^#{1,6}\s*/, '').replace(/^\*\*(.*?)\*\*$/, '$1');
+        lineas.splice(encabezado, 1, '[TITULO_SECCION: Desarrollo]', `[SUBTITULO: ${titulo}]`);
+        contenido = lineas.join('\n');
+      } else {
+        const bloquesTexto = contenido.split(/\n\s*\n+/);
+        if (bloquesTexto.length >= 3) {
+          const segundoBloque = bloquesTexto.findIndex((bloque, n) => n > 0 && bloque.trim() && !/^\[(?:TITULO_SECCION|PARRAFO|SUBTITULO):/i.test(bloque.trim()));
+          if (segundoBloque >= 0) {
+            bloquesTexto.splice(segundoBloque, 0, '[TITULO_SECCION: Desarrollo]', '[PARRAFO]');
+            contenido = bloquesTexto.join('\n\n');
+          }
+        }
+      }
+    }
+  }
   if (/^\[TITULO_SECCION:/im.test(contenido)) return contenido;
   const bloques = contenido.split(/\n\s*\n+/).map(bloque => bloque.trim()).filter(Boolean);
   if (bloques.length < 3) return contenido;
