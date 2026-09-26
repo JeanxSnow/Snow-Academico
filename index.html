@@ -2253,7 +2253,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
           // Si el proveedor repitió el borrador y este ya satisface la estructura,
           // tratar la repetición como respuesta completa, sin lanzar otra generación.
           if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
-            validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+            , analisis.estructura, /apa/i.test(normas), currentWorkType);
             completado = true;
             break;
           }
@@ -2273,13 +2273,13 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         // idéntica. Si el borrador previo ya era válido, cerrar como completado;
         // si no, mostrarlo como borrador y dejar que el usuario decida.
         if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
-          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+          , analisis.estructura, /apa/i.test(normas), currentWorkType);
           completado = true;
           break;
         }
 
         try {
-          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+          , analisis.estructura, /apa/i.test(normas), currentWorkType);
           advertenciaCitas = revisarCitasAPA(generatedContent, /apa/i.test(normas));
           completado = true;
         } catch (validationError) {
