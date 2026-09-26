@@ -440,3 +440,12 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`Snow Academico listo en http://${HOST}:${PORT}. Modelo: ${MODEL}`);
 });
+
+server.on('request', (req, res) => {
+    if (req.method !== 'POST' || req.url !== '/api/generate') return;
+    const requestId = crypto.randomUUID().slice(0, 8);
+  const startedAt = Date.now();
+  console.log(`[generation:${requestId}] received`);
+  res.on('finish', () => console.log(`[generation:${requestId}] finished status=${res.statusCode} elapsedMs=${Date.now() - startedAt}`));
+  res.on('close', () => { if (!res.writableEnded) console.warn(`[generation:${requestId}] client_closed elapsedMs=${Date.now() - startedAt}`); });
+});
