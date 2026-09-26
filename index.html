@@ -1770,7 +1770,7 @@ function limpiarSalidaModelo(texto) {
     .split(/\r?\n/)
     .filter(linea => !patronesInternos.some(patron => patron.test(linea)))
     .join('\n')
-    .replace(/\[(?:PARGRAFO|PARAGRAFO|PÁRRAFO)\]/gi, '[PARRAFO]')
+    .replace(/\[(?:PARGRAFO|PARAGRAFO|PÁRRAFO|PARRAFOFO)\]/gi, '[PARRAFO]')
     .replace(/\n*\[(?:TITULO_SECCION|PARRAFO|SUBTITULO|REFER(?:ENCIA)?)(?::[^\]\r\n]*)?$/i, '')
     .trim();
 }
@@ -2208,8 +2208,23 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
     const maxReparacionesEstructurales = 5;
     let reanudaciones = 0;
     let reparacionesEstructurales = 0;
+    let continuacionesPorExtension = 0;
+    const maxContinuacionesPorExtension = 2;
+    let continuacionPorExtension = false;
     let completado = false;
     let reparacionEstructural = '';
+    const contarPalabrasTrabajo = texto => String(texto || '').trim().split(/\s+/).filter(Boolean).length;
+    const programarExtensionSiCorta = () => {
+      const palabrasActuales = contarPalabrasTrabajo(generatedContent);
+      const minimoPalabras = paginasObjetivo * 220;
+      if (palabrasActuales >= minimoPalabras || continuacionesPorExtension >= maxContinuacionesPorExtension) return false;
+      continuacionesPorExtension += 1;
+      continuacionPorExtension = true;
+      reparacionEstructural = '';
+      generationStatusOverride = `El borrador lleva ${palabrasActuales} palabras y está por debajo de la extensión aproximada. Continuando solo el desarrollo (${continuacionesPorExtension}/${maxContinuacionesPorExtension})…`;
+      generationStatus.textContent = generationStatusOverride;
+      return true;
+    };
     generationStatusOverride = 'Verificando la sesión...';
     generationStatus.textContent = generationStatusOverride;
     const idToken = await promiseWithTimeout(firebaseAuth.currentUser.getIdToken(), 15000, 'La verificación de la sesión tardó demasiado. Intenta de nuevo.');
@@ -2236,8 +2251,14 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         generationStatus.textContent = generationStatusOverride;
         const solicitud = reparacionEstructural
           ? crearPromptReparacionEstructural(lastGenerationPrompt || promptBase, generatedContent, reparacionEstructural)
-          : (recuperando || continuarBorrador
-            ? crearPromptContinuacion(lastGenerationPrompt || promptBase, generatedContent)
+          : (recuperando || continuarBorrador || continuacionPorExtension
+            ? crearPromptContinuacion(
+                lastGenerationPrompt || promptBase,
+                generatedContent,
+                continuacionPorExtension
+                  ? `El borrador tiene ${contarPalabrasTrabajo(generatedContent)} palabras; amplía únicamente las partes analíticas del desarrollo para acercarte a ${paginasObjetivo * 300} palabras totales. Añade contenido nuevo pertinente, sin repetir ideas, crear secciones que contradigan la consigna ni inventar fuentes o cifras. Conserva intactas las secciones y referencias existentes.`
+                  : 'Retoma el mismo trabajo y completa solo lo que falta.'
+              )
             : promptMaestro);
         // Evita que el navegador espere varios minutos si el servidor no llega
         // a devolver ni siquiera los encabezados HTTP de la solicitud.
@@ -2251,7 +2272,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
           signal: controller.signal,
-          body: JSON.stringify({ prompt: solicitud, fallbackAttempt: reanudaciones + reparacionesEstructurales, maxTokens: reparacionEstructural ? 5000 : recuperando ? 8000 : Math.min(16000, Math.max(4000, paginasObjetivo * 2400)), stream: true })
+          body: JSON.stringify({ prompt: solicitud, fallbackAttempt: reanudaciones + reparacionesEstructurales + continuacionesPorExtension, maxTokens: reparacionEstructural ? 5000 : (recuperando || continuacionPorExtension) ? 8000 : Math.min(16000, Math.max(4000, paginasObjetivo * 2400)), stream: true })
         });
         clearTimeout(timeoutRespuestaServidor);
         timeoutRespuestaServidor = null;
@@ -2301,6 +2322,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
           // tratar la repetición como respuesta completa, sin lanzar otra generación.
           if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
             validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+            if (programarExtensionSiCorta()) { clearTimeout(timeoutIntento); continue; }
             completado = true;
             break;
           }
@@ -2326,6 +2348,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         // si no, mostrarlo como borrador y dejar que el usuario decida.
         if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
           validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+          if (programarExtensionSiCorta()) { clearTimeout(timeoutIntento); continue; }
           completado = true;
           break;
         }
@@ -2334,6 +2357,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
           generatedContent = normalizarEstructuraEnsayo(generatedContent, currentWorkType);
           validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
           advertenciaCitas = revisarCitasAPA(generatedContent, /apa/i.test(normas));
+          if (programarExtensionSiCorta()) { clearTimeout(timeoutIntento); continue; }
           completado = true;
         } catch (validationError) {
           const validationMessage = String(validationError.message || '');
