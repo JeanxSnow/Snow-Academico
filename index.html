@@ -1587,7 +1587,7 @@ function updateConfig() {
   const negrita = document.getElementById('negrita').value;
   const normas = document.getElementById('normas').value;
   const paginasElegidas = document.getElementById('paginas').value;
-  const paginas = analisis.extensionExplicita ? analisis.paginas : paginasElegidas;
+  const paginas = (typeof analisis !== 'undefined' && analisis.extensionExplicita) ? analisis.paginas : paginasElegidas;
   document.getElementById('cfgFuente').textContent = fuente + ' ' + tam;
   document.getElementById('cfgTitulo').textContent = tamT + 'pt, ' + (negrita.includes('Sí') ? 'negrita' : 'normal');
   document.getElementById('cfgNormas').textContent = normas.split(' ')[0] + ' ' + (normas.split(' ')[1] || '');
@@ -2053,7 +2053,7 @@ async function generarTrabajo(continuarBorrador = false) {
   const tamTitulo = document.getElementById('tamTitulo').value;
   const normas = document.getElementById('normas').value;
   const paginasElegidas = document.getElementById('paginas').value;
-  const paginas = analisis.extensionExplicita ? analisis.paginas : paginasElegidas;
+  const paginas = (typeof analisis !== 'undefined' && analisis.extensionExplicita) ? analisis.paginas : paginasElegidas;
   const negrita = document.getElementById('negrita').value.includes('Sí') ? 'en negrita' : 'normal';
 
   // Estructura detectada
@@ -2090,7 +2090,10 @@ async function generarTrabajo(continuarBorrador = false) {
   const instruccionesSalida = esLineaDeTiempo
     ? 'Para el formato Línea de Tiempo: presenta una cronología de 8–12 hitos (o los exigidos por el docente), ordenados de la fecha más antigua a la más reciente. Cada hito debe usar [SUBTITULO: FECHA — ACONTECIMIENTO] y debajo [PARRAFO] una explicación breve de su importancia. No la conviertas en ensayo ni agregues portada; la página ya genera la portada.'
     : `Usa los marcadores [TITULO_SECCION: nombre], [PARRAFO] y [SUBTITULO: nombre] para las secciones que correspondan a ${currentWorkType} y a las indicaciones docentes. Si se pide portada, la página la arma aparte; no la generes en el texto.`;
-  const promptBase = `Redacta en español un trabajo académico completo sobre el tema indicado. Debe desarrollar ideas concretas y conectadas; queda prohibido sustituir el análisis con frases genéricas que solo repitan que el tema es importante.
+  const estructuraTexto = analisis.estructura.length > 0
+  ? analisis.estructura.join(', ')
+  : estructuraPredeterminada;
+const promptBase = `Redacta en español un trabajo académico completo sobre el tema indicado. Debe desarrollar ideas concretas y conectadas; queda prohibido sustituir el análisis con frases genéricas que solo repitan que el tema es importante.
 
 DATOS ACADÉMICOS:
 - Asignatura: ${materia || '[Asignatura]'}
