@@ -1757,6 +1757,27 @@ function unirFragmentoGenerado(base, fragmento) {
   if (!nuevo) return anterior;
   if (nuevo.startsWith(anterior)) return nuevo;
 
+  // Si una reanudación vuelve a emitir el documento entero (a veces con una
+  // portada distinta), no lo anexes como si fuera contenido nuevo.
+  if (anterior.length > 1500 && nuevo.length > anterior.length * 0.4) {
+    const normalizar = texto => texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('es').replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/);
+    const palabrasBase = normalizar(anterior);
+    const palabrasNuevo = normalizar(nuevo);
+    const construirNgramas = palabras => {
+      const resultado = new Set();
+      for (let i = 0; i <= palabras.length - 5; i++) resultado.add(palabras.slice(i, i + 5).join(' '));
+      return resultado;
+    };
+    const baseNgramas = construirNgramas(palabrasBase);
+    const nuevoNgramas = construirNgramas(palabrasNuevo);
+    if (baseNgramas.size && nuevoNgramas.size) {
+      let compartidos = 0;
+      for (const frase of nuevoNgramas) if (baseNgramas.has(frase)) compartidos++;
+      if (compartidos / nuevoNgramas.size >= 0.68) return anterior;
+    }
+  }
+
   // Al reanudar, algunos modelos vuelven a emitir el documento entero. Si el
   // nuevo flujo contiene el final del borrador, conservar solo lo que viene después.
   const cola = anterior.slice(-Math.min(1200, anterior.length));
@@ -1826,12 +1847,17 @@ async function readGenerationStream(response, onContent = () => {}) {
   return finishReason;
 }
 
-function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferencias = false) {
+function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferencias = false, tipoTrabajo = 'Ensayo') {
   const contenido = String(texto || '').trim();
   const normalizado = contenido.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const marcadores = [...contenido.matchAll(/^\[TITULO_SECCION:\s*(.+?)\]\s*$/gim)]
     .map(match => match[1].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim());
-  const faltantes = ['introduccion', 'desarrollo', 'conclusion'].filter(seccion => !marcadores.includes(seccion));
+  const esLineaDeTiempo = /línea\s+de\s+tiempo/i.test(tipoTrabajo);
+  // Introducción/desarrollo/conclusión son requisitos de ensayo, no de todos
+  // los productos académicos. Los trabajos de cronología llevan hitos fechados.
+  const faltantes = esLineaDeTiempo
+    ? []
+    : ['introduccion', 'desarrollo', 'conclusion'].filter(seccion => !marcadores.includes(seccion));
   for (const seccion of estructuraRequerida) {
     if (seccion === 'Portada') continue; // La portada se construye localmente con los datos del perfil.
     const nombre = seccion.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -1848,7 +1874,14 @@ function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferen
   if (seccionesFaltantes.length) {
     throw new Error(`La respuesta quedó incompleta: faltan ${seccionesFaltantes.join(', ')}. No se descargó ningún documento; vuelve a intentar.`);
   }
-  for (const seccion of ['introduccion', 'desarrollo', 'conclusion']) {
+  if (esLineaDeTiempo) {
+    const hitos = [...contenido.matchAll(/^\[SUBTITULO:\s*.+?\]\s*$/gim)];
+    const fechas = (contenido.match(/\b(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|(?:siglo\s+)?(?:[ivxlcdm]+|\d{1,4})(?:\s*(?:a\.?\s*c\.?|d\.?\s*c\.?))?)\b/gi) || []).length;
+    if (hitos.length < 4 || fechas < 4) {
+      throw new Error('La línea de tiempo quedó incompleta: debe incluir al menos cuatro hitos con sus fechas y explicaciones. No se descargó; vuelve a intentarlo.');
+    }
+  }
+  for (const seccion of (esLineaDeTiempo ? [] : ['introduccion', 'desarrollo', 'conclusion'])) {
     const inicio = normalizado.search(new RegExp(`^\\[titulo_seccion:\\s*${seccion}\\s*\\]\\s*$`, 'im'));
     const despuesDelInicio = normalizado.slice(inicio + 1);
     const siguiente = despuesDelInicio.search(/^\[TITULO_SECCION:\s*.+?\]\s*$/im);
@@ -2011,7 +2044,9 @@ async function generarTrabajo(continuarBorrador = false) {
   const negrita = document.getElementById('negrita').value.includes('Sí') ? 'en negrita' : 'normal';
 
   // Estructura detectada
-  const estructuraTexto = analisis.estructura.length > 0
+  const estructuraPredeterminada = /línea\s+de\s+tiempo/i.test(currentWorkType)
+    ? 'Línea de tiempo cronológica con hitos fechados y explicación de cada acontecimiento'
+    : analisis.estructura.length > 0
     ? analisis.estructura.join(', ')
     : 'Introducción, Desarrollo, Conclusión';
 
@@ -2035,9 +2070,13 @@ async function generarTrabajo(continuarBorrador = false) {
   // El selector cuenta páginas aproximadas de contenido escrito; la portada va aparte.
   // Se reservan páginas independientes para introducción, conclusión, referencias y objetivos cuando se pidan.
   const incluyeObjetivos = analisis.estructura.includes('Objetivos específicos');
-  const paginasSeccionesBreves = 3 + (incluyeObjetivos ? 1 : 0);
+  const esLineaDeTiempo = /línea\s+de\s+tiempo/i.test(currentWorkType);
+  const paginasSeccionesBreves = (esLineaDeTiempo ? 0 : 3) + (incluyeObjetivos ? 1 : 0);
   const paginasDesarrolloObjetivo = Math.max(1, paginasObjetivo - paginasSeccionesBreves);
   const palabrasDesarrolloObjetivo = paginasDesarrolloObjetivo * 300;
+  const instruccionesSalida = esLineaDeTiempo
+    ? 'Para el formato Línea de Tiempo: presenta una cronología de 8–12 hitos (o los exigidos por el docente), ordenados de la fecha más antigua a la más reciente. Cada hito debe usar [SUBTITULO: FECHA — ACONTECIMIENTO] y debajo [PARRAFO] una explicación breve de su importancia. No la conviertas en ensayo ni agregues portada; la página ya genera la portada.'
+    : `Usa los marcadores [TITULO_SECCION: nombre], [PARRAFO] y [SUBTITULO: nombre] para las secciones que correspondan a ${currentWorkType} y a las indicaciones docentes. Si se pide portada, la página la arma aparte; no la generes en el texto.`;
   const promptBase = `Redacta en español un trabajo académico completo sobre el tema indicado. Debe desarrollar ideas concretas y conectadas; queda prohibido sustituir el análisis con frases genéricas que solo repitan que el tema es importante.
 
 DATOS ACADÉMICOS:
@@ -2051,26 +2090,27 @@ ${instrucciones || 'Desarrolla el tema solicitado con introducción, desarrollo,
 
 FORMATO:
 - Tipo de trabajo: ${currentWorkType}
+- Respeta el tipo seleccionado: el producto debe ser ${currentWorkType}. No lo cambies por ensayo ni añadas una portada dentro del cuerpo; la portada la crea la página aparte.
 - Fuente ${fuente}, tamaño ${tamCuerpo} pt; títulos ${tamTitulo} pt ${negrita}.
 - Citación: ${normas}.
-- Extensión solicitada: ${paginas}. El número del selector representa páginas aproximadas de contenido, sin contar la portada. Introducción, objetivos (si se piden), desarrollo, conclusión y referencias sí forman parte de ese conteo.
-- Reserva una página independiente para la Introducción, otra para la Conclusión, otra para Referencias y, solo si se solicitan, otra para Objetivos específicos. La portada se agrega aparte.
+- Extensión solicitada: ${paginas}. El selector representa páginas aproximadas de contenido, sin contar la portada. Distribuye el contenido de acuerdo con el tipo seleccionado y la consigna, sin inventar secciones para llenar páginas.
+- En ensayos, informes e investigaciones, separa las secciones formales que pidan las indicaciones. Para una línea de tiempo, dedica la extensión a hitos, fechas y explicaciones. No impongas estructura de ensayo a otros tipos. La portada se agrega aparte.
 - Para aproximar el total seleccionado, desarrolla el Desarrollo en unas ${paginasDesarrolloObjetivo} páginas (aproximadamente ${palabrasDesarrolloObjetivo} palabras sustantivas, a unas 300 por página). Mantén las secciones breves dentro de una página cada una. La extensión indicada por el docente prevalece.
 
-- Mantén la Introducción y la Conclusión concisas, de unas 120–180 palabras cada una. Limita los objetivos a 2–4 enunciados concretos. Mantén las Referencias pertinentes y concisas para que ocupen una sola página. No juntes dos secciones principales en la misma página.
+- Si la consigna pide Introducción y Conclusión, mantenlas concisas (unas 120–180 palabras cada una); limita los objetivos solicitados a 2–4 enunciados y mantén pertinentes las referencias. No juntes secciones principales si la consigna exige páginas separadas.
 
 ESTRUCTURA DETECTADA EN LAS INDICACIONES: ${estructuraTexto}.
 - Incluye cada apartado que el docente pida expresamente; la portada se arma por separado con los datos del perfil. No confundas una mención temática como “objetivos organizacionales” con el requisito de una sección formal de objetivos específicos.
 - Si se solicitan objetivos generales o específicos, crea una sección propia titulada “Objetivos específicos” después de la Introducción y antes del Desarrollo, con 2 a 4 objetivos claros y concretos que quepan en una sola página. Si no se solicitan expresamente, no agregues esa sección.
 
 CRITERIOS DE CONTENIDO:
-1. Delimita el tema y plantea una idea central clara en la introducción. Define el propósito y anticipa los aspectos que se desarrollarán, sin usar una introducción de plantilla.
+1. En ensayos e informes, delimita el tema y plantea el propósito en la introducción. En otros formatos, organiza la información de la forma propia del producto solicitado, sin añadir una introducción de plantilla.
 2. Desarrolla el tema con subtítulos informativos y varios párrafos sustantivos. Explica conceptos, mecanismos, causas, efectos, ejemplos pertinentes y límites del conocimiento cuando correspondan.
 3. Mantén una progresión lógica: cada párrafo debe aportar una idea y enlazarse con la siguiente. Evita repeticiones, relleno, afirmaciones vagas y conclusiones sin apoyo en el desarrollo.
 3a. Ajusta el nivel de tecnicismo a la asignatura y la carrera. Usa español académico claro y natural, define las siglas la primera vez y evita modelos, acrónimos o jerga que no sean necesarios para responder la consigna.
 3b. Cuando ayude al análisis, adapta los ejemplos al campo de estudio. Para carreras de turismo, prioriza situaciones verosímiles de hoteles, restaurantes, agencias de viajes o servicios turísticos. No inventes vivencias personales del estudiante.
 4. En temas científicos, distingue hechos establecidos, hipótesis y aplicaciones; explica la evidencia con precisión y no inventes cifras, experimentos, citas textuales ni resultados.
-5. La conclusión responde al propósito inicial y sintetiza lo demostrado. No añadas afirmaciones nuevas ni frases vacías.
+5. Si corresponde una conclusión, sintetiza lo demostrado sin añadir afirmaciones nuevas ni frases vacías. En líneas de tiempo, respeta el orden cronológico y explica la relevancia de los hitos.
 6. Incluye referencias únicamente cuando sean identificables y pertinentes. No inventes autores, títulos, editoriales, DOI, fechas ni enlaces. No digas que verificaste una fuente si no tuviste acceso a ella; si no puedes identificar con seguridad una fuente, no la presentes como comprobada.
 7. Sigue las instrucciones específicas sobre preguntas, objetivos, método, ejemplos y estructura. No agregues secciones que contradigan lo pedido.
 8. No menciones que eres una IA y no incluyas notas al usuario dentro del trabajo.
@@ -2078,20 +2118,10 @@ CRITERIOS DE CONTENIDO:
 10. En trabajos con normas APA 7.ª, ordena la lista de referencias alfabéticamente por el apellido del primer autor o por el nombre de la institución. Usa citas de autor y año en el cuerpo del texto para respaldar afirmaciones tomadas de fuentes. Cada cita debe tener una entrada correspondiente y cada entrada debe citarse en el texto. Revisa especialmente años, autores y títulos; no sustituyas las citas por una bibliografía aislada.
 11. Cuando se propongan ejemplos inventados, identifícalos claramente como hipotéticos y no atribuyas sus resultados a investigaciones reales. Distingue esos ejemplos de la evidencia documental.
 
-Usa exactamente estos marcadores, uno por sección o párrafo:
-[TITULO_SECCION: Introducción]
-[PARRAFO] texto
-[TITULO_SECCION: Objetivos específicos] solo si la consigna los solicita
-[PARRAFO] Objetivo específico 1. Objetivo específico 2. Objetivo específico 3.
-[TITULO_SECCION: Desarrollo]
-[SUBTITULO: subtítulo informativo]
-[PARRAFO] texto
-[TITULO_SECCION: Conclusión]
-[PARRAFO] texto
-[TITULO_SECCION: Referencias]
-[REFERENCIA] referencia
-
-Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la requieren; de lo contrario, comienza directamente con [TITULO_SECCION: Introducción]. Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
+FORMATO DE SALIDA SEGÚN EL TIPO SELECCIONADO:
+${instruccionesSalida}
+Si las indicaciones piden objetivos específicos, inclúyelos bajo [TITULO_SECCION: Objetivos específicos] y redacta 2–4 enunciados concretos. Incluye referencias pertinentes cuando sean solicitadas o necesarias por las normas elegidas; ordena las referencias APA alfabéticamente y enlaza cada entrada con citas en el texto. No agregues secciones de ensayo salvo que el docente las pida expresamente.
+Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
   if (!continuarBorrador) lastGenerationPrompt = promptBase;
   const promptMaestro = continuarBorrador
     ? crearPromptContinuacion(lastGenerationPrompt || promptBase, generatedContent, 'Retoma el mismo trabajo y completa solo lo que falta.')
@@ -2155,6 +2185,13 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
         generatedContent = limpiarSalidaModelo(generatedContent);
         if (!generatedContent.trim()) throw new Error('El servicio no devolvió contenido.');
         if (finishReason === 'length') {
+          // Si el proveedor repitió el borrador y este ya satisface la estructura,
+          // tratar la repetición como respuesta completa, sin lanzar otra generación.
+          if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
+            validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+            completado = true;
+            break;
+          }
           if (reanudaciones >= maxReanudacionesAutomaticas) {
             throw new Error('El proveedor alcanzó varias veces su límite de salida. El borrador quedó guardado en pantalla; puedes continuar desde ahí.');
           }
@@ -2167,8 +2204,17 @@ Para una portada usa [PORTADA] y luego sus líneas solo si las instrucciones la 
         }
         if (finishReason !== 'stop') throw new Error('El proveedor no confirmó que la respuesta terminara correctamente.');
 
+        // Una reanudación que no añadió texto útil no debe provocar otra ronda
+        // idéntica. Si el borrador previo ya era válido, cerrar como completado;
+        // si no, mostrarlo como borrador y dejar que el usuario decida.
+        if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
+          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+          completado = true;
+          break;
+        }
+
         try {
-          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas));
+          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
           advertenciaCitas = revisarCitasAPA(generatedContent, /apa/i.test(normas));
           completado = true;
         } catch (validationError) {
