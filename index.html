@@ -1959,7 +1959,7 @@ function mostrarBorradorIncompleto(motivo) {
   const texto = generatedContent.trim();
   const preview = document.getElementById('previewWrap');
   if (!texto || !/^\[TITULO_SECCION:\s*.+?\]\s*$/im.test(texto)) return false;
-  if (/\bwe need to (produce|write|draft|create)|\bnow (write|produce|draft)|\blet's (aim|write|draft)|\bI should (write|include|produce)|\bthe user (asks|requested|wants)|\bwe need around \d+ words|\[(?:TITULO_SECCION|PARRAFO|SUBTITULO)\s*:/i.test(texto)) return false;
+  if (/\bwe need to (produce|write|draft|create)|\bnow (write|produce|draft)|\blet's (aim|write|draft)|\bI should (write|include|produce)|\bthe user (asks|requested|wants)|\bwe need around \d+ words/i.test(texto)) return false;
 
   preview.replaceChildren();
   const aviso = document.createElement('div');
