@@ -1976,9 +1976,9 @@ async function generarTrabajo(continuarBorrador = false) {
   let lastPaintAt = 0;
   let lastPaintLength = 0;
   let lastStatusAt = 0;
+  const generationStartedAt = Date.now();
   let lastDeltaAt = generationStartedAt;
   let generationStatusOverride = '';
-  const generationStartedAt = Date.now();
   const paintTimer = setInterval(() => {
     if (!generationPaused && Date.now() - lastStatusAt >= 1000) {
       const elapsed = Math.floor((Date.now() - generationStartedAt) / 1000);
