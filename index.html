@@ -1873,6 +1873,20 @@ BORRADOR COMPLETO PARA CONTEXTO (no lo repitas):
 ${contexto}`;
 }
 
+function extraerSeccionesFaltantes(motivo) {
+  const texto = String(motivo || '');
+  const detalle = texto.match(/faltan\s+([^.!?]+)/i)?.[1] || texto.match(/secci[oó]n\s+([^.!?]+?)\s+(?:tiene poco|no tiene)/i)?.[1] || '';
+  if (!detalle) return '';
+  const secciones = [
+    [/introducci[oó]n/i, 'Introducción'],
+    [/objetivos? espec[ií]ficos?/i, 'Objetivos específicos'],
+    [/desarrollo/i, 'Desarrollo'],
+    [/conclusi[oó]n/i, 'Conclusión'],
+    [/referencias|bibliograf[ií]a/i, 'Referencias']
+  ];
+  return secciones.filter(([patron]) => patron.test(detalle)).map(([, nombre]) => nombre).join(', ');
+}
+
 function limpiarSalidaModelo(texto) {
   const patronesInternos = [
     /^\s*(?:user\s+)?safety\s*:\s*(?:safe|unsafe|high|medium|low)\s*$/i,
@@ -1994,11 +2008,18 @@ async function readGenerationStream(response, onContent = () => {}) {
 function normalizarEstructuraEnsayo(texto, tipoTrabajo = 'Ensayo') {
   // Unifica los encabezados equivalentes antes de validar y exportar. Algunos
   // proveedores devuelven "Bibliografía / Referencias" como una sola sección.
-  const contenido = String(texto || '').trim().replace(
-    /^\[TITULO_SECCION:\s*(?:Bibliograf[ií]a\s*\/\s*Referencias|Referencias\s*\/\s*Bibliograf[ií]a)\s*\]\s*$/gim,
+  let contenido = String(texto || '').trim().replace(
+    /^\[TITULO_SECCION:\s*(?:Bibliograf[ií]a\s*(?:\/|y)\s*Referencias|Referencias\s*(?:\/|y)\s*Bibliograf[ií]a|Referencias(?:\s+bibliogr[aá]ficas?)?|Bibliograf[ií]a)\s*\]\s*$/gim,
     '[TITULO_SECCION: Referencias]'
   );
-  if (!/^ensayo$/i.test(tipoTrabajo) || /^\[TITULO_SECCION:/im.test(contenido)) return contenido;
+  if (!/^ensayo$/i.test(tipoTrabajo)) return contenido;
+  // Convierte encabezados corrientes de referencias aunque las otras secciones
+  // del borrador ya usen marcadores estructurales.
+  contenido = contenido.replace(
+    /^\s*(?:#{1,6}\s*)?(?:\*\*)?(?:referencias(?:\s+bibliogr[aá]ficas?)?|bibliograf[ií]a)(?:\s*\/\s*(?:referencias|bibliograf[ií]a))?(?:\s*\([^\r\n)]{1,40}\))?\s*:?[ \t]*(?:\*\*)?\s*$/gim,
+    '[TITULO_SECCION: Referencias]'
+  );
+  if (/^\[TITULO_SECCION:/im.test(contenido)) return contenido;
   const bloques = contenido.split(/\n\s*\n+/).map(bloque => bloque.trim()).filter(Boolean);
   if (bloques.length < 3) return contenido;
   let indiceReferencias = bloques.length;
@@ -2338,7 +2359,9 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
     const maxContinuacionesPorExtension = 2;
     let continuacionPorExtension = false;
     let completado = false;
-    let reparacionEstructural = '';
+    // Al continuar un borrador incompleto, empieza reparando la sección que
+    // provocó el fallo anterior en vez de pedir otra continuación genérica.
+    let reparacionEstructural = continuarBorrador ? extraerSeccionesFaltantes(draftIncompleteReason) : '';
     const contarPalabrasTrabajo = texto => String(texto || '').trim().split(/\s+/).filter(Boolean).length;
     const programarExtensionSiCorta = () => {
       const palabrasActuales = contarPalabrasTrabajo(generatedContent);
@@ -2354,6 +2377,19 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
     generationStatusOverride = 'Verificando la sesión...';
     generationStatus.textContent = generationStatusOverride;
     const idToken = await promiseWithTimeout(firebaseAuth.currentUser.getIdToken(), 15000, 'La verificación de la sesión tardó demasiado. Intenta de nuevo.');
+
+    if (continuarBorrador) {
+      // Un encabezado de referencias normalizado puede resolver el error sin
+      // consumir otra solicitud ni añadir un duplicado al borrador.
+      generatedContent = normalizarEstructuraEnsayo(generatedContent, currentWorkType);
+      try {
+        validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+        advertenciaCitas = revisarCitasAPA(generatedContent, /apa/i.test(normas));
+        if (!programarExtensionSiCorta()) completado = true;
+      } catch (validationError) {
+        reparacionEstructural = extraerSeccionesFaltantes(validationError.message) || reparacionEstructural;
+      }
+    }
 
     while (!completado) {
       if (generationCancelled) throw new DOMException('Generación cancelada por el usuario.', 'AbortError');
@@ -2584,6 +2620,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
   }
 
   clearTimeout(totalGenerationTimeout);
+  draftIncompleteReason = '';
   // La respuesta ya pasó validación: mostrarla y quitar el spinner antes de
   // esperar a Firestore o al registro del crédito, que pueden tardar por red.
   clearInterval(paintTimer);
