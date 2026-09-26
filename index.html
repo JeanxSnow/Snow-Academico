@@ -1861,6 +1861,7 @@ function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferen
   for (const seccion of estructuraRequerida) {
     if (seccion === 'Portada') continue; // La portada se construye localmente con los datos del perfil.
     const nombre = seccion.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    if (esLineaDeTiempo && ['introduccion', 'desarrollo', 'conclusion'].includes(nombre)) continue;
     if (nombre === 'bibliografia / referencias') {
       if (!marcadores.some(t => t === 'bibliografia' || t === 'referencias')) faltantes.push('bibliografía o referencias');
     } else if (!marcadores.includes(nombre)) {
@@ -1875,9 +1876,12 @@ function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferen
     throw new Error(`La respuesta quedó incompleta: faltan ${seccionesFaltantes.join(', ')}. No se descargó ningún documento; vuelve a intentar.`);
   }
   if (esLineaDeTiempo) {
-    const hitos = [...contenido.matchAll(/^\[SUBTITULO:\s*.+?\]\s*$/gim)];
-    const fechas = (contenido.match(/\b(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|(?:siglo\s+)?(?:[ivxlcdm]+|\d{1,4})(?:\s*(?:a\.?\s*c\.?|d\.?\s*c\.?))?)\b/gi) || []).length;
-    if (hitos.length < 4 || fechas < 4) {
+    const patronFecha = /\b(?:\d{3,4}|(?:siglo\s+)?[ivxlcdm]{1,8}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/i;
+    const hitos = contenido.split(/\r?\n/).filter(linea => {
+      const titulo = /^\s*(?:\[SUBTITULO:\s*.+?\]|\d{1,2}[.)]\s+.+)$/i.test(linea);
+      return titulo && patronFecha.test(linea);
+    });
+    if (hitos.length < 4) {
       throw new Error('La línea de tiempo quedó incompleta: debe incluir al menos cuatro hitos con sus fechas y explicaciones. No se descargó; vuelve a intentarlo.');
     }
   }
@@ -2399,6 +2403,7 @@ async function abrirTrabajoGuardado(id) {
 // ── FORMATEAR CONTENIDO CON MARCADORES ───────────────────
 function formatearContenido(texto) {
   let html = String(texto || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\[PORTADA\](.*?)(?=\[TITULO_SECCION|\[PARRAFO|$)/gs, (_, c) => {
       const lines = c.trim().split('\n').filter(l => l.trim());
       return `<div style="text-align:center;padding:20px 0 30px;border-bottom:2px solid var(--gold);margin-bottom:24px">
