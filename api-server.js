@@ -22,7 +22,8 @@ const FALLBACK_MODELS = [
 ];
 const MAX_BODY = 512 * 1024;
 const FIREBASE_REQUEST_TIMEOUT_MS = 15000;
-const UPSTREAM_IDLE_TIMEOUT_MS = 120000;
+const UPSTREAM_CONNECT_TIMEOUT_MS = 25000;
+const UPSTREAM_IDLE_TIMEOUT_MS = 90000;
 const UPSTREAM_TOTAL_TIMEOUT_MS = 480000;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 12;
@@ -297,6 +298,7 @@ const server = http.createServer(async (req, res) => {
 
   let upstreamTimeout;
   let upstreamTotalTimeout;
+  let upstreamConnectTimeout;
   let streamHeartbeat;
   try {
     const startedAt = Date.now();
@@ -318,6 +320,10 @@ const server = http.createServer(async (req, res) => {
     const requestedTokens = Number(input.maxTokens || 6000);
     const maxTokens = Math.min(16000, Math.max(1000, Math.floor(requestedTokens)));
     const upstreamController = new AbortController();
+    upstreamConnectTimeout = setTimeout(
+      () => upstreamController.abort(new Error('upstream connect timeout')),
+      UPSTREAM_CONNECT_TIMEOUT_MS
+    );
     const resetIdleTimeout = () => {
       clearTimeout(upstreamTimeout);
       upstreamTimeout = setTimeout(() => upstreamController.abort(new Error('upstream idle timeout')), UPSTREAM_IDLE_TIMEOUT_MS);
@@ -347,6 +353,7 @@ const server = http.createServer(async (req, res) => {
         ]
       })
     });
+    clearTimeout(upstreamConnectTimeout);
     if (!upstream.ok) {
       clearTimeout(upstreamTimeout);
       clearTimeout(upstreamTotalTimeout);
@@ -407,12 +414,14 @@ const server = http.createServer(async (req, res) => {
     if (finalChunk) res.write(finalChunk);
     clearTimeout(upstreamTimeout);
     clearTimeout(upstreamTotalTimeout);
+    clearTimeout(upstreamConnectTimeout);
     clearInterval(streamHeartbeat);
     if (!res.writableEnded) res.end();
     console.log(`Generacion completada en ${Math.round((Date.now() - startedAt) / 1000)} segundos. Modelo usado: ${usedModel || 'no informado'}.`);
   } catch (error) {
     clearTimeout(upstreamTimeout);
     clearTimeout(upstreamTotalTimeout);
+    clearTimeout(upstreamConnectTimeout);
     clearInterval(streamHeartbeat);
     const cause = error.cause;
     const diagnostic = `${error.name || ''} ${error.message || ''} ${cause?.name || ''} ${cause?.message || ''}`;

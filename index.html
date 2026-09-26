@@ -1996,7 +1996,7 @@ async function generarTrabajo(continuarBorrador = false) {
   generationTimedOut = false;
   if (!continuarBorrador) generatedContent = '';
   generationController = new AbortController();
-  // Cada conexión tiene un límite propio; los reintentos comparten un límite total de 10 minutos.
+  // Los intentos tienen margen para trabajos extensos; el límite total de recuperación es de 10 minutos.
   const totalGenerationTimeout = setTimeout(() => {
     if (!generationInProgress) return;
     generationTimedOut = true;
@@ -2158,10 +2158,13 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
       const controller = new AbortController();
       generationController = controller;
       let intentoExpirado = false;
+      let primerFragmentoRecibido = false;
+      let timeoutPrimerFragmento;
+      let timeoutSinFragmentos;
       const timeoutIntento = setTimeout(() => {
         intentoExpirado = true;
         controller.abort(new DOMException('El proveedor estuvo demasiado tiempo sin completar esta parte.', 'TimeoutError'));
-      }, 150000);
+      }, 240000);
 
       try {
         const recuperando = reanudaciones > 0;
@@ -2190,9 +2193,31 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         generationStatus.textContent = recuperando
           ? 'El proveedor retomó el trabajo; el borrador anterior permanece intacto.'
           : 'Generando… el texto aparecerá aquí conforme llegue.';
+        timeoutPrimerFragmento = setTimeout(() => {
+          if (primerFragmentoRecibido || generationCancelled) return;
+          intentoExpirado = true;
+          generationStatusOverride = 'El proveedor tardó en iniciar; cambiando a una alternativa…';
+          generationStatus.textContent = generationStatusOverride;
+          controller.abort(new DOMException('El proveedor no envió el primer texto a tiempo.', 'TimeoutError'));
+        }, 25000);
         const baseAntesDelIntento = generatedContent;
         let fragmentoDelIntento = '';
         const finishReason = await readGenerationStream(res, delta => {
+          if (delta && !primerFragmentoRecibido) {
+            primerFragmentoRecibido = true;
+            clearTimeout(timeoutPrimerFragmento);
+          }
+          if (delta) {
+            clearTimeout(timeoutSinFragmentos);
+            timeoutSinFragmentos = setTimeout(() => {
+              intentoExpirado = true;
+              generationStatusOverride = generatedContent.trim()
+                ? 'La respuesta se interrumpió; conservando el borrador y cambiando de alternativa…'
+                : 'El proveedor dejó de responder; probando una alternativa…';
+              generationStatus.textContent = generationStatusOverride;
+              controller.abort(new DOMException('El proveedor dejó de enviar texto temporalmente.', 'TimeoutError'));
+            }, 90000);
+          }
           lastDeltaAt = Date.now();
           fragmentoDelIntento += delta;
           generatedContent = unirFragmentoGenerado(baseAntesDelIntento, fragmentoDelIntento);
@@ -2244,6 +2269,8 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         }
       } catch (attemptError) {
         clearTimeout(timeoutIntento);
+        clearTimeout(timeoutPrimerFragmento);
+        clearTimeout(timeoutSinFragmentos);
         if (generationCancelled) throw new DOMException('Generación cancelada por el usuario.', 'AbortError');
         if (generationTimedOut) throw new DOMException('Se alcanzó el límite total de tiempo.', 'TimeoutError');
         if (reanudaciones >= maxReanudacionesAutomaticas || !esErrorReintentableGeneracion(attemptError, intentoExpirado)) throw attemptError;
@@ -2257,6 +2284,8 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         await esperarReintentoGeneracion(Math.min(8000, 1000 * (2 ** (reanudaciones - 1))), generationController.signal);
       } finally {
         clearTimeout(timeoutIntento);
+        clearTimeout(timeoutPrimerFragmento);
+        clearTimeout(timeoutSinFragmentos);
       }
     }
 
