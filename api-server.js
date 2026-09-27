@@ -188,7 +188,10 @@ async function getAccountBanStatus(firebaseUser) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === 'GET' && req.url === '/health') {
+  // Instagram and other social apps may append tracking query parameters to shared links.
+  // Route page requests by pathname so /?igsh=... still serves the app.
+  const requestPath = new URL(req.url, 'http://localhost').pathname;
+  if (req.method === 'GET' && requestPath === '/health') {
     return send(res, 200, { ok: true }, 'application/json; charset=utf-8');
   }
   if ((req.method === 'GET' && req.url === '/api/admin/credits') || (req.method === 'PUT' && req.url === '/api/admin/credits')) {
@@ -307,7 +310,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 503, { error: 'No se pudo verificar el acceso a esta cuenta. Intenta de nuevo.' });
     }
   }
-  if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
+  if (req.method === 'GET' && (requestPath === '/' || requestPath === '/index.html')) {
     try {
       return send(res, 200, await fs.promises.readFile(INDEX_FILE, 'utf8'), 'text/html; charset=utf-8');
     } catch {
