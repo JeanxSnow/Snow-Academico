@@ -111,10 +111,12 @@
     background: var(--bg2);
     border: 1px solid var(--border);
     border-radius: 20px;
-    padding: 48px 44px;
-    width: 100%; max-width: 420px;
-    box-shadow: var(--shadow);
+    padding: 42px 44px;
+    width: 100%; max-width: 520px;
+    box-shadow: var(--shadow), 0 22px 70px #0002;
+    position: relative; overflow: hidden;
   }
+  .auth-card::before { content:''; position:absolute; inset:0 0 auto; height:4px; background:linear-gradient(90deg,var(--gold),#f5d77d,transparent); }
   .auth-logo {
     font-family: 'Playfair Display', serif;
     font-size: 28px; font-weight: 700;
@@ -132,6 +134,10 @@
     font-size: 12px; line-height: 1.6;
   }
   .auth-info strong { color: var(--text); }
+  .auth-steps { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:-10px 0 22px; }
+  .auth-step { padding:10px 8px; border:1px solid var(--border); border-radius:10px; background:var(--bg3); color:var(--text2); font-size:11px; line-height:1.45; text-align:center; }
+  .auth-step span { display:block; font-size:17px; margin-bottom:4px; }
+  .auth-privacy { padding:10px 12px; margin:10px 0 16px; border:1px solid var(--border); border-radius:9px; background:var(--bg3); color:var(--text2); font-size:11px; line-height:1.55; }
   .auth-tabs {
     display: flex; border-bottom: 1px solid var(--border);
     margin-bottom: 28px;
@@ -453,6 +459,16 @@
   .toast.success { border-left: 3px solid var(--success); }
   .toast.error { border-left: 3px solid var(--danger); }
 
+  .comments-fab {
+    display:none; position:fixed; right:24px; bottom:24px; z-index:500;
+    align-items:center; gap:9px; padding:13px 18px; border:1px solid #fff4;
+    border-radius:999px; background:linear-gradient(135deg,var(--gold),#e2bd60);
+    color:#17130a; font:700 13px 'Inter',sans-serif; cursor:pointer;
+    box-shadow:0 8px 26px #0005; transition:transform .2s,box-shadow .2s;
+  }
+  .comments-fab:hover { transform:translateY(-3px); box-shadow:0 12px 30px #0006; }
+  .comments-fab:focus-visible { outline:3px solid var(--text); outline-offset:3px; }
+
   /* ── RESPONSIVE ── */
   @media (max-width: 900px) {
     .sidebar { display: none; }
@@ -462,7 +478,11 @@
     .uni-grid { grid-template-columns: repeat(3, 1fr); }
     .work-types { grid-template-columns: repeat(2, 1fr); }
     .row-3 { grid-template-columns: 1fr 1fr; }
+    .comments-fab { right:16px; bottom:16px; padding:12px 15px; }
+    .auth-wrap { padding:76px 16px 28px; }
+    .auth-card { padding:34px 24px; }
   }
+  @media (max-width: 420px) { .auth-steps { gap:5px; } .auth-step { font-size:10px; padding:8px 5px; } }
 </style>
 </head>
 <body>
@@ -483,8 +503,13 @@
   <div class="auth-wrap">
     <div class="auth-card">
       <div class="auth-logo">Snow Académico</div>
-      <div class="auth-sub">Trabajos universitarios profesionales con IA</div>
-      <div class="auth-info"><strong>¿Qué hace Snow Académico?</strong> Te ayuda a preparar borradores académicos a partir de las indicaciones de tu asignatura. Elige el tipo de trabajo y el formato; luego revisa el contenido, verifica las fuentes y ajústalo con tus ideas antes de entregarlo. La herramienta puede cometer errores y no sustituye las instrucciones de tu docente.</div>
+      <div class="auth-sub">Tu espacio para organizar y preparar borradores académicos</div>
+      <div class="auth-info"><strong>¿Cómo funciona?</strong> Snow Académico convierte las indicaciones de tu asignatura en un borrador editable para ayudarte a empezar. Tú eliges el tipo de trabajo, tema, extensión y formato; después puedes descargarlo y revisarlo. La herramienta puede equivocarse: verifica los datos y las fuentes, adapta el contenido a tus ideas y sigue siempre las instrucciones de tu docente.</div>
+      <div class="auth-steps" aria-label="Pasos para usar Snow Académico">
+        <div class="auth-step"><span>📋</span>1. Comparte las indicaciones</div>
+        <div class="auth-step"><span>✨</span>2. Prepara tu borrador</div>
+        <div class="auth-step"><span>✅</span>3. Revisa y descarga</div>
+      </div>
 
       <div class="auth-tabs">
         <div class="auth-tab active" onclick="switchTab('login')">Iniciar sesión</div>
@@ -526,6 +551,7 @@
           <label class="form-label">Correo electrónico</label>
           <input class="form-input" type="email" placeholder="tucorreo@email.com" id="regEmail">
         </div>
+        <div class="auth-privacy"><strong>Sobre tu correo:</strong> puedes usar un correo ficticio con formato válido; actualmente no se verifica. Si luego necesitas recuperar tu contraseña, tendrás que usar un correo al que puedas acceder. Elige una contraseña propia de al menos 8 caracteres y no reutilices una contraseña importante.</div>
         <div class="form-group">
           <label class="form-label">Contraseña</label>
           <input class="form-input" type="password" placeholder="Mínimo 8 caracteres" id="regPass" autocomplete="new-password">
@@ -1028,6 +1054,10 @@
   </div>
 </div>
 
+<button class="comments-fab" id="commentsFab" type="button" onclick="showPage('comentarios')" aria-label="Abrir comentarios, dudas o reportar un problema" title="Enviar una duda, sugerencia o reporte">
+  <span aria-hidden="true">💬</span> Comentarios y ayuda
+</button>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -1141,6 +1171,7 @@ function showScreen(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-' + name).classList.add('active');
   document.getElementById('logoutBtn').style.display = name === 'app' ? 'block' : 'none';
+  document.getElementById('commentsFab').style.display = name === 'app' ? 'inline-flex' : 'none';
 }
 
 // ── PAGES ──────────────────────────────────────────────
