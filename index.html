@@ -1888,6 +1888,14 @@ function extraerSeccionesFaltantes(motivo) {
 }
 
 function limpiarSalidaModelo(texto) {
+  let salida = String(texto || '');
+  // Algunos proveedores empiezan devolviendo su plan interno antes del trabajo.
+  // Si identificamos ese preámbulo y un marcador de respuesta, descartar todo
+  // lo anterior para no mostrarlo ni conservarlo como parte del borrador.
+  if (/^\s*(?:here(?:'|’)?s\s+a\s+thinking\s+process|thinking\s+process|analysis\s*:|let\s+me\s+think\b)/i.test(salida)) {
+    const inicioRespuesta = salida.match(/(?:^|\r?\n)\s*(?:output|final\s+answer|respuesta\s+final)\s*:\s*/i);
+    salida = inicioRespuesta ? salida.slice(inicioRespuesta.index + inicioRespuesta[0].length) : '';
+  }
   const patronesInternos = [
     /^\s*(?:user\s+)?safety\s*:\s*(?:safe|unsafe|high|medium|low)\s*$/i,
     /\bwe need to (?:produce|write|draft|create)\b/i,
@@ -1899,7 +1907,7 @@ function limpiarSalidaModelo(texto) {
     /\b(?:drafting plan|word count target|let me think through|outline first)\b/i,
 
   ];
-  return String(texto || '')
+  return salida
     .split(/\r?\n/)
     .filter(linea => !patronesInternos.some(patron => patron.test(linea)))
     .join('\n')
@@ -2010,6 +2018,12 @@ function normalizarEstructuraEnsayo(texto, tipoTrabajo = 'Ensayo') {
   // proveedores devuelven "Bibliografía / Referencias" como una sola sección.
   let contenido = String(texto || '').trim().replace(
     /^[ \t]*\[TITULO_SECCION:\s*(?:Bibliograf[ií]a\s*(?:\/|y)\s*Referencias|Referencias\s*(?:\/|y)\s*Bibliograf[ií]a|Referencias(?:\s+bibliogr[aá]ficas?)?|Bibliograf[ií]a)\s*\][ \t]*$/gim,
+    '[TITULO_SECCION: Referencias]'
+  );
+  // Las líneas de tiempo y otros formatos también pueden traer referencias
+  // aunque el modelo entregue el encabezado como texto plano.
+  contenido = contenido.replace(
+    /^[ \t]*(?:#{1,6}[ \t]*)?(?:\*\*)?(?:referencias(?:[ \t]+bibliogr[aá]ficas?)?|bibliograf[ií]a)(?:[ \t]*\/[ \t]*(?:referencias|bibliograf[ií]a))?(?:[ \t]*\([^\r\n)]{1,40}\))?[ \t]*:?[ \t]*(?:\*\*)?[ \t]*$/gim,
     '[TITULO_SECCION: Referencias]'
   );
   if (!/^ensayo$/i.test(tipoTrabajo)) return contenido;
