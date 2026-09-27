@@ -732,6 +732,13 @@
                   <small class="hint">Cuenta introducción, objetivos (si se piden), desarrollo, conclusión y referencias. La portada va aparte; las secciones principales empiezan en páginas nuevas.</small>
                 </div>
               </div>
+              <div class="form-group" style="margin:0 0 16px">
+                <label style="display:flex;align-items:center;gap:9px;font-weight:600;cursor:pointer">
+                  <input type="checkbox" id="incluirReferencias" checked style="accent-color:var(--gold);width:16px;height:16px">
+                  Incluir bibliografía o referencias
+                </label>
+                <small class="hint">Si la consigna exige fuentes, déjalo activado. La lista será breve y pertinente; verifica siempre cada fuente.</small>
+              </div>
               <div class="form-group" style="margin-bottom:0">
                 <label class="form-label">Títulos en negrita</label>
                 <select class="form-input" id="negrita" onchange="updateConfig()">
@@ -1867,7 +1874,7 @@ function crearPromptReparacionEstructural(promptOriginal, borrador, seccionesFal
   return `${promptOriginal}\n\nCOMPLETA SOLO LAS SECCIONES QUE FALTAN:
 El trabajo ya está redactado y el texto existente debe conservarse sin reescritura, resumen ni repetición. Devuelve únicamente las secciones indicadas abajo, con sus marcadores [TITULO_SECCION: nombre] y [PARRAFO]. No vuelvas a generar la introducción, objetivos ni desarrollo que ya aparecen en el borrador.
 Secciones pendientes: ${faltantes.join('; ')}.
-Si falta Referencias o Bibliografía, incluye referencias APA 7 solo para fuentes identificables y vinculadas con las citas existentes. No inventes datos bibliográficos; si una cita no permite identificar una fuente, no finjas que está verificada.
+Si falta Referencias o Bibliografía, completa únicamente esa lista en el estilo indicado en las instrucciones originales. Limítala a 2–4 entradas breves, vinculadas con las citas existentes; no agregues anotaciones ni inventes datos bibliográficos o enlaces.
 
 BORRADOR COMPLETO PARA CONTEXTO (no lo repitas):
 ${contexto}`;
@@ -2107,6 +2114,14 @@ function normalizarEstructuraEnsayo(texto, tipoTrabajo = 'Ensayo') {
   return secciones.join('\n\n');
 }
 
+function aplicarPreferenciaReferencias(texto, incluirReferencias) {
+  const contenido = normalizarEstructuraEnsayo(texto, currentWorkType);
+  if (incluirReferencias) return contenido;
+  // La bibliografía suele ser el último apartado; al desactivarla no debe
+  // quedar el encabezado ni el texto de la lista en el documento final.
+  return contenido.replace(/^\[TITULO_SECCION:\s*(?:Referencias|Bibliograf[ií]a)(?:\s*\/\s*(?:Referencias|Bibliograf[ií]a))?\s*\][\s\S]*$/im, '').trim();
+}
+
 function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferencias = false, tipoTrabajo = 'Ensayo') {
   const contenido = String(texto || '').trim();
   const normalizado = contenido.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -2240,6 +2255,10 @@ async function generarTrabajo(continuarBorrador = false) {
 
   // Analizar indicaciones automáticamente
   const analisis = analizarIndicaciones(instrucciones);
+  const incluirReferencias = document.getElementById('incluirReferencias')?.checked !== false;
+  const estructuraGeneracion = incluirReferencias
+    ? analisis.estructura
+    : analisis.estructura.filter(seccion => !/bibliograf[ií]a|referencias/i.test(seccion));
 
   // Mostrar alertas si hay partes que requieren datos reales
   if (analisis.alertas.length > 0) {
@@ -2333,9 +2352,9 @@ async function generarTrabajo(continuarBorrador = false) {
     ? 'Línea de tiempo cronológica con hitos fechados y explicación de cada acontecimiento'
     : analisis.estructura.length > 0
     ? analisis.estructura.join(', ')
-    : 'Introducción, Desarrollo, Conclusión';
-  const estructuraTexto = analisis.estructura.length > 0
-    ? analisis.estructura.join(', ')
+    : (incluirReferencias ? 'Introducción, Desarrollo, Conclusión' : 'Introducción, Desarrollo, Conclusión sin referencias');
+  const estructuraTexto = estructuraGeneracion.length > 0
+    ? estructuraGeneracion.join(', ')
     : estructuraPredeterminada;
 
   // Perfil del usuario
@@ -2362,6 +2381,12 @@ async function generarTrabajo(continuarBorrador = false) {
   const paginasSeccionesBreves = (esLineaDeTiempo ? 0 : 3) + (incluyeObjetivos ? 1 : 0);
   const paginasDesarrolloObjetivo = Math.max(1, paginasObjetivo - paginasSeccionesBreves);
   const palabrasDesarrolloObjetivo = paginasDesarrolloObjetivo * 300;
+  const requiereReferencias = incluirReferencias;
+  const referenciasObjetivoMin = Math.max(2, Math.min(4, Math.ceil(paginasObjetivo * 0.7)));
+  const referenciasObjetivoMax = Math.max(referenciasObjetivoMin, Math.min(5, Math.ceil(paginasObjetivo)));
+  const instruccionesReferencias = requiereReferencias
+    ? `Incluye una sección final [TITULO_SECCION: Referencias] con ${referenciasObjetivoMin}–${referenciasObjetivoMax} referencias concisas y directamente pertinentes. Usa entradas breves en el estilo elegido, sin anotaciones ni descripciones largas. Añade solo URL/DOI específicos que identifiques con seguridad; no inventes fuentes ni enlaces.`
+    : 'No incluyas sección de bibliografía o referencias ni citas bibliográficas; el usuario pidió omitirlas.';
   const instruccionesSalida = esLineaDeTiempo
     ? 'Para el formato Línea de Tiempo: presenta una cronología de 8–12 hitos (o los exigidos por el docente), ordenados de la fecha más antigua a la más reciente. Cada hito debe usar [SUBTITULO: FECHA — ACONTECIMIENTO] y debajo [PARRAFO] una explicación breve de su importancia. No la conviertas en ensayo ni agregues portada; la página ya genera la portada.'
     : `Usa los marcadores [TITULO_SECCION: nombre], [PARRAFO] y [SUBTITULO: nombre] para las secciones que correspondan a ${currentWorkType} y a las indicaciones docentes. Si se pide portada, la página la arma aparte; no la generes en el texto.`;
@@ -2374,13 +2399,14 @@ DATOS ACADÉMICOS:
 La página añadirá la portada usando los datos del perfil localmente. No solicites ni inventes nombres, matrícula, correo, universidad, facilitador o fecha dentro del texto generado.
 
 INDICACIONES DEL DOCENTE (tienen prioridad sobre las pautas generales):
-${instrucciones || 'Desarrolla el tema solicitado con introducción, desarrollo, conclusión y referencias.'}
+ ${instrucciones || `Desarrolla el tema solicitado con introducción, desarrollo y conclusión${requiereReferencias ? ', con referencias' : ', sin bibliografía ni citas bibliográficas'}.`}
 
 FORMATO:
 - Tipo de trabajo: ${currentWorkType}
 - Respeta el tipo seleccionado: el producto debe ser ${currentWorkType}. No lo cambies por ensayo ni añadas una portada dentro del cuerpo; la portada la crea la página aparte.
 - Fuente ${fuente}, tamaño ${tamCuerpo} pt; títulos ${tamTitulo} pt ${negrita}.
 - Citación: ${normas}.
+- Bibliografía: ${requiereReferencias ? 'activada; incluye solo 2–4 entradas cortas y directamente pertinentes, con URL/DOI específicos únicamente si los conoces con seguridad.' : 'desactivada; omite el apartado de referencias y las citas bibliográficas.'}
 - Extensión solicitada: ${paginas}. El selector representa páginas aproximadas de contenido, sin contar la portada. Distribuye el contenido de acuerdo con el tipo seleccionado y la consigna, sin inventar secciones para llenar páginas.
 - En ensayos, informes e investigaciones, separa las secciones formales que pidan las indicaciones. Para una línea de tiempo, dedica la extensión a hitos, fechas y explicaciones. No impongas estructura de ensayo a otros tipos. La portada se agrega aparte.
 - Para aproximar el total seleccionado, desarrolla el Desarrollo en unas ${paginasDesarrolloObjetivo} páginas (aproximadamente ${palabrasDesarrolloObjetivo} palabras sustantivas, a unas 300 por página). Mantén las secciones breves dentro de una página cada una. La extensión indicada por el docente prevalece.
@@ -2403,12 +2429,12 @@ CRITERIOS DE CONTENIDO:
 7. Sigue las instrucciones específicas sobre preguntas, objetivos, método, ejemplos y estructura. No agregues secciones que contradigan lo pedido.
 8. No menciones que eres una IA y no incluyas notas al usuario dentro del trabajo.
 9. No presentes porcentajes, resultados, estudios, empresas ni casos como reales si no puedes vincularlos con una fuente identificable y pertinente. Si el ejemplo es inventado para explicar una idea, indícalo expresamente como hipotético y no lo atribuyas a un estudio o autor.
-10. En trabajos con normas APA 7.ª, ordena la lista de referencias alfabéticamente por el apellido del primer autor o por el nombre de la institución. Usa citas de autor y año en el cuerpo del texto para respaldar afirmaciones tomadas de fuentes. Cada cita debe tener una entrada correspondiente y cada entrada debe citarse en el texto. Revisa especialmente años, autores y títulos; no sustituyas las citas por una bibliografía aislada.
+ 10. En trabajos con normas APA 7.ª y referencias activadas, ordena la lista alfabéticamente. Usa citas de autor y año en el cuerpo y haz coincidir cada cita con una entrada; no añadas fuentes extensas ni anotaciones.
 11. Cuando se propongan ejemplos inventados, identifícalos claramente como hipotéticos y no atribuyas sus resultados a investigaciones reales. Distingue esos ejemplos de la evidencia documental.
 
 FORMATO DE SALIDA SEGÚN EL TIPO SELECCIONADO:
 ${instruccionesSalida}
-Si las indicaciones piden objetivos específicos, inclúyelos bajo [TITULO_SECCION: Objetivos específicos] y redacta 2–4 enunciados concretos. Incluye referencias pertinentes cuando sean solicitadas o necesarias por las normas elegidas; ordena las referencias APA alfabéticamente y enlaza cada entrada con citas en el texto. No agregues secciones de ensayo salvo que el docente las pida expresamente.
+Si las indicaciones piden objetivos específicos, inclúyelos bajo [TITULO_SECCION: Objetivos específicos] y redacta 2–4 enunciados concretos. ${instruccionesReferencias} ${requiereReferencias && /apa/i.test(normas) ? 'Ordena las referencias APA alfabéticamente y enlaza cada entrada con citas en el texto.' : ''} No agregues secciones de ensayo salvo que el docente las pida expresamente.
 Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
   if (!continuarBorrador) lastGenerationPrompt = promptBase;
   const promptMaestro = continuarBorrador
@@ -2450,10 +2476,10 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
     if (continuarBorrador) {
       // Un encabezado de referencias normalizado puede resolver el error sin
       // consumir otra solicitud ni añadir un duplicado al borrador.
-      generatedContent = normalizarEstructuraEnsayo(generatedContent, currentWorkType);
+      generatedContent = aplicarPreferenciaReferencias(generatedContent, incluirReferencias);
       try {
-        validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
-        advertenciaCitas = revisarCitasAPA(generatedContent, /apa/i.test(normas));
+        validarTrabajoGenerado(generatedContent, estructuraGeneracion, requiereReferencias, currentWorkType);
+        advertenciaCitas = revisarCitasAPA(generatedContent, requiereReferencias && /apa/i.test(normas));
         if (!programarExtensionSiCorta()) completado = true;
       } catch (validationError) {
         reparacionEstructural = extraerSeccionesFaltantes(validationError.message) || reparacionEstructural;
@@ -2554,7 +2580,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
           // Si el proveedor repitió el borrador y este ya satisface la estructura,
           // tratar la repetición como respuesta completa, sin lanzar otra generación.
           if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
-            validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+            validarTrabajoGenerado(generatedContent, estructuraGeneracion, requiereReferencias, currentWorkType);
             if (programarExtensionSiCorta()) { clearTimeout(timeoutIntento); continue; }
             completado = true;
             break;
@@ -2580,16 +2606,16 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         // idéntica. Si el borrador previo ya era válido, cerrar como completado;
         // si no, mostrarlo como borrador y dejar que el usuario decida.
         if (baseAntesDelIntento.trim() && generatedContent.trim() === baseAntesDelIntento.trim()) {
-          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
+          validarTrabajoGenerado(generatedContent, estructuraGeneracion, requiereReferencias, currentWorkType);
           if (programarExtensionSiCorta()) { clearTimeout(timeoutIntento); continue; }
           completado = true;
           break;
         }
 
         try {
-          generatedContent = normalizarEstructuraEnsayo(generatedContent, currentWorkType);
-          validarTrabajoGenerado(generatedContent, analisis.estructura, /apa/i.test(normas), currentWorkType);
-          advertenciaCitas = revisarCitasAPA(generatedContent, /apa/i.test(normas));
+          generatedContent = aplicarPreferenciaReferencias(generatedContent, incluirReferencias);
+          validarTrabajoGenerado(generatedContent, estructuraGeneracion, requiereReferencias, currentWorkType);
+          advertenciaCitas = revisarCitasAPA(generatedContent, requiereReferencias && /apa/i.test(normas));
           if (programarExtensionSiCorta()) { clearTimeout(timeoutIntento); continue; }
           completado = true;
         } catch (validationError) {
@@ -2796,8 +2822,11 @@ function formatearContenido(texto) {
         ${lines.map(l => `<div style="margin:4px 0;font-weight:500">${l.trim()}</div>`).join('')}
       </div>`;
     })
-    .replace(/\[TITULO_SECCION: (.+?)\]/g, (_, t) =>
-      `<h2 style="font-size:16px;font-weight:700;color:var(--gold);margin:28px 0 12px;border-left:3px solid var(--gold);padding-left:10px">${t}</h2>`)
+    .replace(/\[TITULO_SECCION: (.+?)\]/g, (_, t) => {
+      const esReferencias = /^(?:referencias|bibliograf[ií]a)/i.test(t.trim());
+      const color = esReferencias ? '#78b7ff' : 'var(--gold)';
+      return `<h2 style="font-size:16px;font-weight:700;color:${color};margin:28px 0 12px;border-left:3px solid ${color};padding-left:10px">${t}</h2>`;
+    })
     .replace(/\[SUBTITULO: (.+?)\]/g, (_, t) =>
       `<h3 style="font-size:14px;font-weight:600;color:var(--text);margin:20px 0 8px">${t}</h3>`)
     .replace(/\[PARRAFO\]\s*/g, '<p style="margin:0 0 14px;line-height:1.8;text-align:justify">')
@@ -2807,6 +2836,23 @@ function formatearContenido(texto) {
     // Close unclosed p tags
     .replace(/(<p[^>]*>)(.*?)(?=<h[23]|<p|<ul|<div|$)/gs, (_, tag, content) =>
       content.trim() ? `${tag}${content}</p>` : '');
+  // Destaca la lista y convierte únicamente sus URL en enlaces verificables.
+  html = html.replace(/(<h2[^>]*>\s*(?:Referencias|Bibliograf[ií]a)[^<]*<\/h2>)([\s\S]*?)(?=<h2\b|$)/i, (_, heading, body) => {
+    const styledBody = body
+      .replace(/<p\b[^>]*>/gi, '<p style="font-size:13px;color:var(--text2);line-height:1.65;margin:6px 0;padding-left:20px;text-indent:-20px">')
+      .replace(/https?:\/\/[^\s<]+/gi, url => {
+        const trailing = (url.match(/[.,;:!?\])}]+$/) || [''])[0];
+        const cleanUrl = url.slice(0, url.length - trailing.length);
+        let safeUrl;
+        try {
+          const parsedUrl = new URL(cleanUrl);
+          if (!['http:', 'https:'].includes(parsedUrl.protocol)) return url;
+          safeUrl = parsedUrl.href.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        } catch { return url; }
+        return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color:#78b7ff;text-decoration:underline">${cleanUrl}</a>${trailing}`;
+      });
+    return heading + styledBody;
+  });
   return html || `<p>${texto}</p>`;
 }
 
