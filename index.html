@@ -106,7 +106,20 @@
     min-height: 100vh; display: flex;
     align-items: center; justify-content: center;
     padding: 80px 20px 40px;
+    position:relative; isolation:isolate; overflow:hidden;
+    background:
+      radial-gradient(ellipse at 12% 18%, rgba(201,168,76,.14), transparent 34%),
+      radial-gradient(ellipse at 88% 82%, rgba(83,125,164,.13), transparent 38%),
+      repeating-linear-gradient(0deg, transparent 0 39px, rgba(201,168,76,.035) 40px);
   }
+  .auth-art { position:absolute; inset:62px 0 0; overflow:hidden; z-index:0; pointer-events:none; }
+  .auth-art span { position:absolute; display:grid; place-items:center; color:var(--gold-soft); opacity:.5; filter:drop-shadow(0 8px 14px #0003); user-select:none; }
+  .auth-art .art-book { left:8%; top:16%; font-size:76px; transform:rotate(-13deg); }
+  .auth-art .art-pencil { right:12%; top:13%; font-size:67px; transform:rotate(22deg); }
+  .auth-art .art-letters { left:13%; bottom:16%; font:700 37px 'Playfair Display',serif; transform:rotate(-8deg); }
+  .auth-art .art-paper { right:10%; bottom:14%; font-size:68px; transform:rotate(12deg); }
+  .auth-art .art-ruler { right:27%; top:9%; font-size:39px; transform:rotate(-12deg); opacity:.35; }
+  .auth-art .art-star { left:26%; top:12%; font-size:26px; opacity:.4; }
   .auth-card {
     background: var(--bg2);
     border: 1px solid var(--border);
@@ -115,6 +128,7 @@
     width: 100%; max-width: 520px;
     box-shadow: var(--shadow), 0 22px 70px #0002;
     position: relative; overflow: hidden;
+    z-index:1;
   }
   .auth-card::before { content:''; position:absolute; inset:0 0 auto; height:4px; background:linear-gradient(90deg,var(--gold),#f5d77d,transparent); }
   .auth-logo {
@@ -481,6 +495,11 @@
     .comments-fab { right:16px; bottom:16px; padding:12px 15px; }
     .auth-wrap { padding:76px 16px 28px; }
     .auth-card { padding:34px 24px; }
+    .auth-art .art-book { left:-2%; top:13%; font-size:52px; }
+    .auth-art .art-pencil { right:-1%; top:12%; font-size:48px; }
+    .auth-art .art-letters { left:1%; bottom:8%; font-size:25px; }
+    .auth-art .art-paper { right:0; bottom:8%; font-size:48px; }
+    .auth-art .art-ruler { display:none; }
   }
   @media (max-width: 420px) { .auth-steps { gap:5px; } .auth-step { font-size:10px; padding:8px 5px; } }
 </style>
@@ -501,13 +520,18 @@
 ════════════════════════════════════════ -->
 <div id="screen-auth" class="screen active">
   <div class="auth-wrap">
+    <div class="auth-art" aria-hidden="true">
+      <span class="art-book">📚</span><span class="art-pencil">✏️</span>
+      <span class="art-letters">A+ · ABC</span><span class="art-paper">📓</span>
+      <span class="art-ruler">📐</span><span class="art-star">✦</span>
+    </div>
     <div class="auth-card">
       <div class="auth-logo">Snow Académico</div>
-      <div class="auth-sub">Tu espacio para organizar y preparar borradores académicos</div>
-      <div class="auth-info"><strong>¿Cómo funciona?</strong> Snow Académico convierte las indicaciones de tu asignatura en un borrador editable para ayudarte a empezar. Tú eliges el tipo de trabajo, tema, extensión y formato; después puedes descargarlo y revisarlo. La herramienta puede equivocarse: verifica los datos y las fuentes, adapta el contenido a tus ideas y sigue siempre las instrucciones de tu docente.</div>
+      <div class="auth-sub">De las indicaciones de tu clase a una tarea académica lista para revisar</div>
+      <div class="auth-info"><strong>¿Qué es Snow Académico?</strong> Es una herramienta de apoyo que usa inteligencia artificial para preparar tareas a partir de las instrucciones de tu asignatura. Pega las indicaciones, selecciona el tipo de trabajo y el formato, y genera un documento descargable. Antes de entregarlo, revisa la exactitud, las fuentes y las instrucciones de tu docente; adapta el contenido con tus propias ideas, porque la herramienta puede cometer errores.</div>
       <div class="auth-steps" aria-label="Pasos para usar Snow Académico">
         <div class="auth-step"><span>📋</span>1. Comparte las indicaciones</div>
-        <div class="auth-step"><span>✨</span>2. Prepara tu borrador</div>
+        <div class="auth-step"><span>✨</span>2. Genera tu tarea</div>
         <div class="auth-step"><span>✅</span>3. Revisa y descarga</div>
       </div>
 
@@ -836,7 +860,7 @@
               <button class="btn btn-outline" onclick="regenerar()">🔄 Regenerar</button>
               <button class="btn btn-ghost" onclick="limpiarPreview()">✕ Limpiar</button>
             </div>
-            <div class="review-notice" role="note"><strong>Antes de entregarlo:</strong> revisa y corrige el contenido, verifica que las citas y referencias sean reales y pertinentes, y adapta el borrador a tus ideas y a las instrucciones de tu docente. Comprueba también el formato del archivo descargado.</div>
+            <div class="review-notice" role="note"><strong>Antes de entregarlo:</strong> revisa y corrige el contenido, verifica que las citas y referencias sean reales y pertinentes, y adapta la tarea a tus ideas y a las instrucciones de tu docente. Comprueba también el formato del archivo descargado.</div>
           </div>
 
           <!-- Columna derecha — config resumen -->
@@ -2205,7 +2229,7 @@ function validarTrabajoGenerado(texto, estructuraRequerida = [], requiereReferen
       .replace(/\s+/g, ' ')
       .trim();
     if (textoSeccion.split(/\s+/).filter(Boolean).length < 20) {
-      throw new Error(`La sección ${seccion} tiene poco o ningún contenido. No se descargó ningún documento; puedes continuar el borrador o descargarlo marcado para revisión.`);
+      throw new Error(`La sección ${seccion} tiene poco o ningún contenido. No se descargó ningún documento; puedes continuar la tarea guardada o descargarla marcada para revisión.`);
     }
   }
   const textoSinMarcadoresEstructurales = contenido.replace(/^\[(?:TITULO_SECCION:\s*.+?|PARRAFO|SUBTITULO:\s*.+?)\]\s*$/gim, '');
@@ -2249,20 +2273,20 @@ function mostrarBorradorIncompleto(motivo) {
   const aviso = document.createElement('div');
   aviso.setAttribute('role', 'status');
   aviso.style.cssText = 'margin:0 0 18px;padding:12px 14px;border:1px solid #d8a740;border-radius:8px;color:var(--text);background:rgba(216,167,64,.10)';
-  aviso.textContent = `Borrador incompleto: ${motivo} El texto se conserva, pero aún no está listo para entregar. Usa “Continuar desde el borrador guardado” para intentar completar lo que falta; si no se logra, puedes iniciar una nueva generación cuando esta termine.`;
+  aviso.textContent = `Tarea incompleta: ${motivo} El texto se conserva, pero aún no está listo para entregar. Usa “Continuar tarea guardada” para intentar completar lo que falta; si no se logra, puedes iniciar una nueva generación cuando esta termine.`;
   preview.appendChild(aviso);
   const resume = document.createElement('button');
   resume.type = 'button';
   resume.className = 'btn btn-outline';
   resume.style.cssText = 'display:block;margin-top:12px';
-  resume.textContent = '↻ Continuar desde el borrador guardado';
+  resume.textContent = '↻ Continuar tarea guardada';
   resume.addEventListener('click', () => void generarTrabajo(true));
   aviso.appendChild(resume);
   const downloadDraft = document.createElement('button');
   downloadDraft.type = 'button';
   downloadDraft.className = 'btn btn-ghost';
   downloadDraft.style.cssText = 'display:block;margin-top:8px;color:var(--text)';
-  downloadDraft.textContent = '⬇ Descargar borrador marcado para revisión';
+  downloadDraft.textContent = '⬇ Descargar tarea marcada para revisión';
   downloadDraft.addEventListener('click', () => void descargarBorradorIncompleto());
   aviso.appendChild(downloadDraft);
   preview.insertAdjacentHTML('beforeend', formatearContenido(texto));
@@ -2281,7 +2305,7 @@ async function generarTrabajo(continuarBorrador = false) {
     showToast('Pega las indicaciones del maestro o escribe el tema', 'error'); return;
   }
   if (continuarBorrador && !generatedContent.trim()) {
-    showToast('No hay un borrador parcial que se pueda continuar.', 'error'); return;
+    showToast('No hay una tarea parcial que se pueda continuar.', 'error'); return;
   }
 
   // Analizar indicaciones automáticamente
@@ -2353,7 +2377,7 @@ async function generarTrabajo(continuarBorrador = false) {
       const timeLabel = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
       const sinFragmentos = Date.now() - lastDeltaAt;
       generationStatus.textContent = generationStatusOverride || (generatedContent && sinFragmentos > 20000
-        ? `El proveedor está tardando… ${timeLabel}. El borrador se conserva. Mantén la página abierta y no inicies otro trabajo.`
+        ? `El proveedor está tardando… ${timeLabel}. La tarea se conserva. Mantén la página abierta y no inicies otra tarea.`
         : generatedContent
           ? `Generando… ${timeLabel} · el texto aparece conforme llega.`
           : `Esperando respuesta del proveedor… ${timeLabel}. Mantén la página abierta; no vuelvas a generar todavía.`);
@@ -2496,7 +2520,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
       continuacionesPorExtension += 1;
       continuacionPorExtension = true;
       reparacionEstructural = '';
-      generationStatusOverride = `El borrador lleva ${palabrasActuales} palabras y está por debajo de la extensión aproximada. Continuando solo el desarrollo (${continuacionesPorExtension}/${maxContinuacionesPorExtension})…`;
+      generationStatusOverride = `La tarea lleva ${palabrasActuales} palabras y está por debajo de la extensión aproximada. Ampliando solo el desarrollo (${continuacionesPorExtension}/${maxContinuacionesPorExtension})…`;
       generationStatus.textContent = generationStatusOverride;
       return true;
     };
@@ -2534,7 +2558,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
       try {
         const recuperando = reanudaciones > 0;
         generationStatusOverride = recuperando
-          ? `Recuperando la respuesta… reanudación ${reanudaciones} de ${maxReanudacionesAutomaticas}; el borrador se conserva.`
+          ? `Recuperando la respuesta… reanudación ${reanudaciones} de ${maxReanudacionesAutomaticas}; la tarea se conserva.`
           : 'Conectando con el proveedor…';
         generationStatus.textContent = generationStatusOverride;
         const solicitud = reparacionEstructural
@@ -2572,7 +2596,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         }
         generationStatusOverride = '';
         generationStatus.textContent = recuperando
-          ? 'El proveedor retomó el trabajo; el borrador anterior permanece intacto.'
+          ? 'El proveedor retomó el trabajo; la tarea anterior permanece intacta.'
           : 'Generando… el texto aparecerá aquí conforme llegue.';
         timeoutPrimerFragmento = setTimeout(() => {
           if (primerFragmentoRecibido || generationCancelled) return;
@@ -2593,7 +2617,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
             timeoutSinFragmentos = setTimeout(() => {
               intentoExpirado = true;
               generationStatusOverride = generatedContent.trim()
-                ? 'La respuesta se interrumpió; conservando el borrador y cambiando de alternativa…'
+                ? 'La respuesta se interrumpió; conservando la tarea y cambiando de alternativa…'
                 : 'El proveedor dejó de responder; probando una alternativa…';
               generationStatus.textContent = generationStatusOverride;
               controller.abort(new DOMException('El proveedor dejó de enviar texto temporalmente.', 'TimeoutError'));
@@ -2617,10 +2641,10 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
             break;
           }
           if (reparacionEstructural && reparacionesEstructurales >= maxReparacionesEstructurales) {
-            throw new Error(`El proveedor cortó la sección pendiente (${reparacionEstructural}) varias veces. El borrador se conserva para continuar sin perder lo generado.`);
+            throw new Error(`El proveedor cortó la sección pendiente (${reparacionEstructural}) varias veces. La tarea se conserva para continuar sin perder lo generado.`);
           }
           if (!reparacionEstructural && reanudaciones >= maxReanudacionesAutomaticas) {
-            throw new Error('El proveedor alcanzó varias veces su límite de salida. El borrador quedó guardado en pantalla; puedes continuar desde ahí.');
+            throw new Error('El proveedor alcanzó varias veces su límite de salida. La tarea quedó guardada en pantalla; puedes continuar desde ahí.');
           }
           if (reparacionEstructural) reparacionesEstructurales += 1;
           else reanudaciones += 1;
@@ -2707,7 +2731,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
         document.getElementById('spinnerWrap').classList.remove('visible');
         document.getElementById('generationControls').classList.remove('visible');
         if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
-        showToast(borradorPreservado ? 'Se agotaron los reintentos automáticos; el borrador se conserva y puedes continuarlo.' : 'No se recibió suficiente texto para reanudar. Inténtalo de nuevo más tarde.', 'error');
+        showToast(borradorPreservado ? 'Se agotaron los reintentos automáticos; la tarea se conserva y puedes continuarla.' : 'No se recibió suficiente texto para reanudar. Inténtalo de nuevo más tarde.', 'error');
         return;
       }
     let cancelCreditSettled = true;
@@ -2720,7 +2744,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
       document.getElementById('generationControls').classList.remove('visible');
       if (generateButton) { generateButton.disabled = false; generateButton.textContent = generateButtonOriginalText; }
       const borradorPreservado = mostrarBorradorIncompleto('la generación fue cancelada por el usuario.');
-        const mensajeCancelacion = borradorPreservado ? 'Generación cancelada. El borrador se conserva; pulsa “Continuar desde el borrador guardado” para completar lo que falta.' : 'Generación cancelada. La solicitud se detuvo; cuando desaparezca este aviso, puedes volver a intentarlo.';
+        const mensajeCancelacion = borradorPreservado ? 'Generación cancelada. La tarea se conserva; pulsa “Continuar tarea guardada” para completar lo que falta.' : 'Generación cancelada. La solicitud se detuvo; cuando desaparezca este aviso, puedes volver a intentarlo.';
     showToast(cancelCreditSettled ? mensajeCancelacion + ' Se contó 1 crédito.' : mensajeCancelacion + ' No se pudo actualizar el contador; contacta al administrador antes de generar de nuevo.', cancelCreditSettled ? 'info' : 'error');
       return;
     }
@@ -2739,7 +2763,7 @@ Devuelve solo el trabajo completo, sin comentario previo ni posterior.`;
     const mensaje = e instanceof TypeError
       ? 'No se pudo conectar con el servicio de IA. Revisa que el servidor local siga abierto en PowerShell.'
       : borradorPreservado
-        ? `El borrador quedó guardado. Pulsa “Continuar desde el borrador guardado” para completar lo que falta. No inicies otro trabajo mientras continúas este. Detalle: ${e.message}`
+        ? `La tarea quedó guardada. Pulsa “Continuar tarea guardada” para completar lo que falta. No inicies otra tarea mientras continúas esta. Detalle: ${e.message}`
         : `No se pudo completar el trabajo: ${e.message}. Si fue un error técnico, no debería consumir crédito; espera a que termine este intento y vuelve a probar.`;
     showToast(mensaje, 'error');
     return;
@@ -2897,7 +2921,7 @@ function limpiarPreview() {
 
 async function descargarBorradorIncompleto() {
   if (!generatedContent.trim()) return;
-  const aceptado = confirm(`Este archivo se marcará como BORRADOR INCOMPLETO. Motivo: ${draftIncompleteReason}\n\nRevísalo y complétalo antes de entregarlo. ¿Quieres descargarlo de todos modos?`);
+  const aceptado = confirm(`Este archivo se marcará como TAREA INCOMPLETA. Motivo: ${draftIncompleteReason}\n\nRevísala y complétala antes de entregarla. ¿Quieres descargarla de todos modos?`);
   if (!aceptado) return;
   draftExportMode = true;
   try { await descargarTrabajo(); }
@@ -2951,7 +2975,7 @@ function descargarPDF() {
   }
   const title = document.getElementById('tema')?.value || 'Trabajo académico';
   const preview = document.getElementById('previewWrap');
-  const draftBanner = draftExportMode ? '<p style="border:2px solid #a00;padding:12px;font-weight:bold;text-align:center">BORRADOR INCOMPLETO — REVISIÓN OBLIGATORIA</p>' : '';
+  const draftBanner = draftExportMode ? '<p style="border:2px solid #a00;padding:12px;font-weight:bold;text-align:center">TAREA INCOMPLETA — REVISIÓN OBLIGATORIA</p>' : '';
   const htmlContent = draftBanner + (preview?.innerHTML || `<pre>${textoExportable().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`);
   printWindow.document.open();
   printWindow.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${title.replace(/[<>]/g, '')}</title><style>
@@ -2967,7 +2991,7 @@ function descargarPDF() {
 function bloquesParaPresentacion() {
   const groups = [];
   let title = 'Desarrollo';
-  let paragraphs = draftExportMode ? ['BORRADOR INCOMPLETO — REVISIÓN OBLIGATORIA'] : [];
+  let paragraphs = draftExportMode ? ['TAREA INCOMPLETA — REVISIÓN OBLIGATORIA'] : [];
   let inCover = false;
   const flush = () => {
     if (paragraphs.length) groups.push({ title, paragraphs });
@@ -3187,7 +3211,7 @@ async function descargarWord() {
 
     // Salto de página al terminar la portada
     bodyXml += pageBreak();
-    if (draftExportMode) bodyXml += paraBody(`BORRADOR INCOMPLETO — REVISIÓN OBLIGATORIA. Motivo: ${draftIncompleteReason}`, { bold: true, center: true, sz: szTitle });
+    if (draftExportMode) bodyXml += paraBody(`TAREA INCOMPLETA — REVISIÓN OBLIGATORIA. Motivo: ${draftIncompleteReason}`, { bold: true, center: true, sz: szTitle });
 
     // La portada ocupa una hoja; el contenido fluye para respetar la extensión solicitada.
     const lines = generatedContent.split('\n');
